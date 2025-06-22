@@ -1,0 +1,8 @@
+# ignore
+**/.idea
+**/.vscode
+**/.DS_Store
+*/target
+
+
+
