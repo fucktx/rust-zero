@@ -1,6 +1,23 @@
 pub struct Options {
     pub env: bool,
 }
+impl Default for Options {
+    fn default() -> Self {
+        Self { env: false }
+    }
+}
+
+pub trait Option {
+    fn apply<T>(self, opts: &mut Options);
+}
+
+pub struct UseEnv(bool);
+
+impl Option for UseEnv {
+    fn apply<T>(self, opts: &mut Options) {
+        opts.env = true;
+    }
+}
 
 impl Options {
     pub fn new() -> Self {
@@ -20,7 +37,6 @@ impl Options {
 pub trait Option {
     fn apply(&self, opts: &mut Options);
 }
-
 
 fn main() {
     // 使用示例
