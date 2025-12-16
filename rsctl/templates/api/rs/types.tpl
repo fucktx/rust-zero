@@ -6,3 +6,5 @@ use chrono::{DateTime, Utc};
 {{end}}
 
 {{.types}}
+
+

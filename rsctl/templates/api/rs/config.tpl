@@ -23,3 +23,5 @@ pub fn load_config() -> Config {
     // TODO: 之后可以改成从环境变量 / 配置文件加载
     Config::default()
 }
+
+

@@ -1,0 +1,13 @@
+[package]
+name = "core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+spec = { path = "../spec" }
+parse = { path = "../parse" }
+semantic = { path = "../semantic" }
+gen = { path = "../gen" }
+
+

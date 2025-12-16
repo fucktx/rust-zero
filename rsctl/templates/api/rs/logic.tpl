@@ -28,3 +28,5 @@ impl {{.logic}} {
         {{.returnString}}
     }
 }
+
+

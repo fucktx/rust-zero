@@ -25,3 +25,5 @@ pub async fn {{.HandlerName}}(
     }
     {{end}}
 }
+
+
