@@ -1,7 +1,7 @@
 //! Pipeline orchestration: parse -> semantic -> spec -> gen -> write.
 
-pub fn ping() -> &'static str {
-    "core"
-}
+pub mod api;
+pub mod model;
+mod template_source;
 
 

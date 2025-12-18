@@ -9,5 +9,6 @@ spec = { path = "../spec" }
 parse = { path = "../parse" }
 semantic = { path = "../semantic" }
 gen = { path = "../gen" }
+tracing.workspace = true
 
 

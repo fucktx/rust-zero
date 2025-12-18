@@ -23,6 +23,8 @@ rsctl/
       rs/
     model/
     rpc/
+  examples/                        # 示例输入/示例工程（可选）
+  docs/                            # 设计文档/规范（可选）
 ```
 
 ## 各 crate 职责（为什么要这样分层）
@@ -43,6 +45,112 @@ rsctl/
   -> spec（稳定 IR）
   -> gen（生成 artifacts）
   -> write（落盘策略：覆盖/跳过/合并）
+```
+
+## “完整形态”目录结构参考（带注释）
+
+下面这份结构是你最初贴出来的“全链路 + 分层职责”的 **落盘版**（已按本仓库的实际约束做了两点调整：**扁平 crates**、**crate 不加 `rsctl-` 前缀**）。
+
+```text
+rsctl/                                              # workspace 根目录
+  Cargo.toml                                        # [workspace]：成员管理/统一依赖版本
+  README.md                                         # 总览说明/快速开始/目录解释（就是本文件）
+
+  cli/                                              # 二进制 crate：命令行入口（最终产物）
+    Cargo.toml
+    src/
+      main.rs                                       # 入口：解析参数 -> 调用 core
+      cli.rs                                        # clap/子命令定义与分发（薄层）
+      cli/
+        commands/                                   # api/model/rpc 等子命令（gen/validate/format…）
+        args/                                       # 参数结构/校验/配置加载
+
+  core/                                             # 核心库 crate：流水线编排 + 公共能力（对外主 API）
+    Cargo.toml
+    src/
+      lib.rs                                        # 对外接口：run_xxx/pipeline
+      pipeline.rs                                   # Parse->Semantic->Spec->Gen->Write 编排（入口/调度）
+      pipeline/
+        api.rs                                      # api 流水线编排（可选：按域拆分）
+        model.rs
+        rpc.rs
+      common.rs                                     # 通用：error/naming/fs/config/logging 等
+
+  spec/                                             # IR/Spec crate：统一代码生成模型（稳定层）
+    Cargo.toml
+    src/
+      lib.rs
+      api.rs                                        # API Spec 根模块
+      api/
+        types.rs                                    # 类型系统：Request/Response/DTO/Enum…
+        routes.rs                                   # 路由：service/route/method/path…
+      model.rs                                      # Model Spec 根模块
+      model/
+        schema.rs                                   # 表/字段/索引/关系等
+        types.rs                                    # 统一类型系统（吸收不同数据库的类型差异）
+      rpc.rs                                        # RPC Spec 根模块
+      rpc/
+        service.rs                                  # service/method 定义
+        message.rs                                  # message/field 定义
+
+  parse/                                            # Parse crate：输入解析（文本/文件 -> AST/中间结构）
+    Cargo.toml
+    src/
+      lib.rs
+      api.rs                                        # API 输入解析入口（DSL/OpenAPI 等）
+      api/
+        dsl.rs                                      # 自定义 .api DSL 解析
+        openapi.rs                                  # OpenAPI 输入解析
+      model.rs                                      # Model 输入解析入口（DDL/Schema/Introspect…）
+      model/
+        mysql.rs                                    # MySQL 方言解析/导入点
+        pg.rs                                       # PostgreSQL 方言解析/导入点
+      rpc.rs                                        # RPC 输入解析入口（proto/thrift 等）
+      rpc/
+        proto.rs
+        thrift.rs
+
+  semantic/                                         # Semantic crate：语义分析与归一化（AST -> Spec）
+    Cargo.toml
+    src/
+      lib.rs
+      api.rs                                        # API 语义检查/默认值/命名归一/引用解析
+      model.rs                                      # Model 语义检查/类型归一/约束归一（吸收大部分方言差异）
+      rpc.rs                                        # RPC 语义检查/引用解析/包名归一等
+
+  gen/                                              # Gen crate：生成层（Spec -> Artifacts/待写文件集合）
+    Cargo.toml
+    src/
+      lib.rs
+      api.rs                                        # API 生成器集合（领域优先；语言/框架放更深层）
+      api/
+        rs_axum.rs                                  # Rust/Axum 生成器（示例）
+        go_zero.rs                                  # Go/go-zero 风格生成器（预留）
+      model.rs                                      # Model 生成器集合
+      model/
+        mysql.rs                                    # 例如 sqlx/gorm/DDL 等输出策略
+        pg.rs
+      rpc.rs                                        # RPC 生成器集合
+      rpc/
+        grpc.rs
+        thrift.rs
+      template.rs                                   # 模板渲染封装（helpers/filters/loader）
+      write.rs                                      # 写文件与增量更新策略（覆盖/跳过/合并/标记块）
+      write/
+        plan.rs                                     # 变更计划（新增/更新/删除/差异摘要）
+        strategy.rs                                 # overwrite/merge/skip 等策略
+
+  templates/                                        # 外置模板（可选；也可迁入 gen 内并内嵌）
+    api/                                            # API 模板根
+      rs/                                           # Rust API 模板（当前已有）
+      go/                                           # Go API 模板（预留）
+    model/                                          # Model 模板根（后续细分 mysql/pg/redis）
+    rpc/                                            # RPC 模板根
+      grpc/
+      thrift/
+
+  examples/                                         # 示例输入/示例工程（可选）
+  docs/                                             # 设计文档/规范/模板变量说明（可选）
 ```
 
 ## 规划的细化目录（后续按功能补齐）
