@@ -1,3 +1,5 @@
+// placeholder (axum) - reuse `templates/api/rs/svc.tpl`
+
 // Code scaffolded by rsctl. Safe to edit.
 // rsctl {{.version}}
 

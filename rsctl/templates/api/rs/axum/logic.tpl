@@ -1,9 +1,7 @@
+// placeholder (axum) - reuse `templates/api/rs/logic.tpl`
+
 // Code scaffolded by rsctl. Safe to edit.
 // rsctl {{.version}}
-
-use std::sync::Arc;
-use tracing::instrument;
-use crate::svc::ServiceContext;
 {{.imports}}
 
 pub struct {{.logic}} {
@@ -22,7 +20,7 @@ impl {{.logic}} {
     pub async fn {{.function}}(
         &self{{if .request}},
         {{.request}}{{end}}
-    ) {{.responseType}} {
+    ) -> {{.responseType}} {
         // todo: add your logic here and delete this line
 
         {{.returnString}}

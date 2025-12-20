@@ -1,27 +1,19 @@
-use std::sync::Arc;
-use axum::{
-    extract::{State{{if .HasRequest}}, Json{{end}}},
-    response::{IntoResponse, Response},
-};
-use crate::svc::ServiceContext;
-{{.ImportPackages}}
-
 {{if .HasDoc}}{{.Doc}}{{end}}
 pub async fn {{.HandlerName}}(
     State(svc_ctx): State<Arc<ServiceContext>>,
     {{if .HasRequest}}Json(req): Json<crate::types::{{.RequestType}}>,{{end}}
-) -> Response {
+) -> impl IntoResponse {
     let logic = crate::logic::{{.LogicName}}::{{.LogicType}}::new(svc_ctx);
 
     {{if .HasResp}}
     match logic.{{.Call}}({{if .HasRequest}}req{{end}}).await {
-        Ok(resp) => resp.into_response(),
-        Err(err) => err.into_response(),
+        Ok(resp) => Json(resp).into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
     {{else}}
     match logic.{{.Call}}({{if .HasRequest}}req{{end}}).await {
-        Ok(()) => ().into_response(), // 这里你可以自定义一个 OK 的 IntoResponse 实现
-        Err(err) => err.into_response(),
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
     {{end}}
 }

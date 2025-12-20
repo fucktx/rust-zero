@@ -11,33 +11,56 @@ pub enum Api {
 #[derive(Debug, Clone, ClapArgs)]
 pub struct RsArgs {
     /// Output directory of generated project/files
-    #[arg(long = "dir")]
+    #[arg(short = 'd', long = "dir", default_value = ".")]
     pub dir: PathBuf,
 
     /// Path of API description file
-    #[arg(long = "api")]
+    #[arg(short = 'a', long = "api")]
     pub api: PathBuf,
 
-    /// The file naming format (reserved; affects output filenames)
-    #[arg(long = "style")]
+    /// 生成文件命名风格（影响生成的 .rs 文件名）
+    ///
+    /// 可选值：
+    /// - rust_zero  : snake_case（默认）
+    /// - rustZero   : lowerCamelCase（仅影响文件名；模块名仍为 snake_case）
+    /// - RustZero   : UpperCamelCase（仅影响文件名；模块名仍为 snake_case）
+    #[arg(short = 's', long = "style", default_value = "rust_zero", value_parser = ["rust_zero", "rustZero", "RustZero"])]
     pub style: Option<String>,
 
     /// Template source:
     /// - git/http URL => clone to temp and use it
     /// - /xxx or relative path => local template directory
     /// - omitted => use local `templates/` under current working dir
-    #[arg(long = "remote")]
+    #[arg(short = 'r', long = "remote")]
     pub remote: Option<String>,
+
+    /// Merge handlers of the same group into one file.
+    ///
+    /// - `true`: merge into `handler/<group>/handler.rs` and `logic/<group>/logic.rs`
+    /// - `false`: split one handler per file under the group dir
+    #[arg(short = 'm', long = "merge", default_value_t = true, action = clap::ArgAction::Set)]
+    pub merge: bool,
+
+    /// Overwrite existing files when writing to disk (default: false).
+    #[arg(short = 'o', long = "overwrite", action = clap::ArgAction::SetTrue)]
+    pub overwrite: bool,
+
+    /// Target web framework name (default: axum)
+    #[arg(short = 'f', long = "framework", default_value = "axum")]
+    pub framework: String,
 }
 
 pub fn run(api: Api) -> Result<()> {
     match api {
         Api::Rs(args) => {
-            core::api::run_rs(core::api::ApiRsOptions {
+            core::api::rs::run(core::api::rs::Options {
                 out_dir: args.dir,
                 api_file: args.api,
                 style: args.style,
                 remote: args.remote,
+                merge: args.merge,
+                overwrite: args.overwrite,
+                framework: args.framework,
             })
             .context("rsctl api rs failed")?;
         }

@@ -2,6 +2,6 @@
 
 pub mod api;
 pub mod model;
-mod template_source;
+// template_source merged into `utils::template`
 
 

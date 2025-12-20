@@ -17,18 +17,18 @@ pub struct MysqlArgs {
     pub cache: bool,
 
     /// The target dir
-    #[arg(short = 'd', long = "dir")]
+    #[arg(short = 'd', long = "dir", default_value = ".")]
     pub dir: PathBuf,
 
     /// Template source:
     /// - git/http URL => clone to temp and use it
     /// - /xxx or relative path => local template directory
     /// - omitted => use local `templates/` under current working dir
-    #[arg(long = "remote")]
+    #[arg(short = 'r', long = "remote")]
     pub remote: Option<String>,
 
     /// The file naming format (reserved; affects output filenames)
-    #[arg(long = "style")]
+    #[arg(short = 's', long = "style", default_value = "rust_zero")]
     pub style: Option<String>,
 }
 
@@ -39,25 +39,25 @@ pub struct PgArgs {
     pub cache: bool,
 
     /// The target dir
-    #[arg(short = 'd', long = "dir")]
+    #[arg(short = 'd', long = "dir", default_value = ".")]
     pub dir: PathBuf,
 
     /// Template source:
     /// - git/http URL => clone to temp and use it
     /// - /xxx or relative path => local template directory
     /// - omitted => use local `templates/` under current working dir
-    #[arg(long = "remote")]
+    #[arg(short = 'r', long = "remote")]
     pub remote: Option<String>,
 
     /// The file naming format (reserved; affects output filenames)
-    #[arg(long = "style")]
+    #[arg(short = 's', long = "style", default_value = "rust_zero")]
     pub style: Option<String>,
 }
 
 pub fn run(model: Model) -> Result<()> {
     match model {
         Model::Mysql(args) => {
-            core::model::run_mysql(core::model::ModelMysqlOptions {
+            core::model::mysql::run(core::model::mysql::Options {
                 out_dir: args.dir,
                 cache: args.cache,
                 style: args.style,
@@ -66,7 +66,7 @@ pub fn run(model: Model) -> Result<()> {
             .context("rsctl model mysql failed")?;
         }
         Model::Pg(args) => {
-            core::model::run_pg(core::model::ModelPgOptions {
+            core::model::pg::run(core::model::pg::Options {
                 out_dir: args.dir,
                 cache: args.cache,
                 style: args.style,

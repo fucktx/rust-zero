@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 
 mod api;
 mod model;
+mod version;
 
 #[derive(Debug, Parser)]
 #[command(name = "rsctl", version, about = "Code generator CLI")]
@@ -23,6 +24,12 @@ enum Command {
         #[command(subcommand)]
         driver: model::Model,
     },
+    /// Print RS generator version (template/version for generated Rust scaffold)
+    Info {
+        /// Print RS generator version
+        #[arg(short = 'v', long = "version", action = clap::ArgAction::SetTrue)]
+        version: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -36,6 +43,7 @@ fn main() -> Result<()> {
     match app.command {
         Command::Api { lang } => api::run(lang)?,
         Command::Model { driver } => model::run(driver)?,
+        Command::Info { version: _ } => println!("{}", version::VERSION),
     }
 
     Ok(())

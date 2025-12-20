@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+parse = { path = "../parse" }
 spec = { path = "../spec" }
 
 

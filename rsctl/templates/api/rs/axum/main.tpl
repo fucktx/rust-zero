@@ -1,5 +1,13 @@
+// placeholder (axum) - reuse `templates/api/rs/main.tpl`
+
 // Code scaffolded by rsctl. Safe to edit.
 // rsctl {{.version}}
+
+mod config;
+mod handler;
+mod logic;
+mod svc;
+mod types;
 
 use std::{env, net::SocketAddr, sync::Arc};
 use tokio::signal;
@@ -7,9 +15,9 @@ use axum::Router;
 
 {{.importPackages}}
 
-/// 配置文件路径，默认：`etc/{{.serviceName}}.yaml`
+/// 配置文件路径，默认：`etc/config.yaml`
 /// 支持通过环境变量覆盖：`CONFIG_FILE=/path/to/config.yaml`
-const DEFAULT_CONFIG_FILE: &str = "etc/{{.serviceName}}.yaml";
+const DEFAULT_CONFIG_FILE: &str = "etc/config.yaml";
 
 #[tokio::main]
 async fn main() {
@@ -27,7 +35,7 @@ async fn main() {
     };
 
     // 组合监听地址：等价 Go 的 c.Host, c.Port
-    let addr: SocketAddr = format!("{}:{}", c.host, c.port)
+    let addr: SocketAddr = format!("{}:{}", c.rest.host, c.rest.port)
         .parse()
         .expect("invalid host/port in config");
 
@@ -37,10 +45,18 @@ async fn main() {
     // 构建路由：等价 Go 里的 handler.RegisterHandlers(server, ctx)
     let app: Router = handler::register_handlers(svc_ctx);
 
-    println!("Starting server at {}:{}...", c.host, c.port);
+    println!("Starting server at {}:{}...", c.rest.host, c.rest.port);
 
     // 启动服务，并支持 ctrl+c 优雅退出
-    if let Err(err) = axum::Server::bind(&addr)
+    let server = match axum::Server::try_bind(&addr) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("failed to bind {}: {}", addr, e);
+            return;
+        }
+    };
+
+    if let Err(err) = server
         .serve(app.into_make_service())
         .with_graceful_shutdown(shutdown_signal())
         .await

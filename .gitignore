@@ -4,5 +4,8 @@
 **/.DS_Store
 */target
 cursor
-
-
+rsctl/.cargo
+rsctl/.tmp
+rsctl/dist
+rsctl/target
+rsctl/test
