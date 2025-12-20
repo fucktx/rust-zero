@@ -17,8 +17,8 @@ pub mod rs {
         pub merge: bool,
         /// Whether to overwrite existing files when writing.
         pub overwrite: bool,
-        /// Target framework name (e.g. "axum").
-        pub framework: String,
+        /// Target web framework name (e.g. "axum").
+        pub web: String,
     }
 
     #[derive(Debug, Clone)]
@@ -30,22 +30,21 @@ pub mod rs {
         pub template_root: PathBuf,
         pub merge: bool,
         pub overwrite: bool,
-        pub framework: String,
+        pub web: String,
     }
 
     pub fn run(opts: Options) -> Result<Config> {
-        let framework = opts.framework.clone();
-        let cfg = config(opts, &framework)?;
-        pipeline(&cfg, &framework)?;
+        let web = opts.web.clone();
+        let cfg = config(opts, &web)?;
+        pipeline(&cfg, &web)?;
         Ok(cfg)
     }
 
-    /// Resolve/normalize options into a runnable `Config`.
-    ///
+
     /// Note: currently still contains side-effects (create dir, write marker) as a proof-of-wiring.
-    pub(crate) fn config(mut opts: Options, framework: &str) -> Result<Config> {
-        // Ensure consistent framework label for downstream.
-        opts.framework = framework.to_string();
+    pub(crate) fn config(mut opts: Options, web: &str) -> Result<Config> {
+        // Ensure consistent web label for downstream.
+        opts.web = web.to_string();
 
         if opts.out_dir.as_os_str().is_empty() {
             return Err(anyhow!("--dir is required"));
@@ -64,7 +63,7 @@ pub mod rs {
             api = %opts.api_file.display(),
             template_root = %template_root.display(),
             style = opts.style.as_deref().unwrap_or(""),
-            framework = %opts.framework,
+            web = %opts.web,
             merge = opts.merge,
             overwrite = opts.overwrite,
             "rsctl api rs resolved"
@@ -77,11 +76,11 @@ pub mod rs {
             template_root,
             merge: opts.merge,
             overwrite: opts.overwrite,
-            framework: opts.framework,
+            web: opts.web,
         })
     }
 
-    pub(crate) fn pipeline(cfg: &Config, framework: &str) -> Result<()> {
+    pub(crate) fn pipeline(cfg: &Config, web: &str) -> Result<()> {
         // 1) parse
         let ast = parse::api::parse_file(&cfg.api_file).context("parse api file")?;
 
@@ -97,7 +96,7 @@ pub mod rs {
             .unwrap_or("api")
             .to_string();
 
-        let artifacts = match framework {
+        let artifacts = match web {
             "axum" => codegen::api::rs::axum::generate(
                 &spec,
                 &codegen::api::rs::axum::Options {
@@ -116,7 +115,7 @@ pub mod rs {
                     template_root: cfg.template_root.clone(),
                 },
             )?,
-            other => return Err(anyhow!("unsupported framework for gen: {other}")),
+            other => return Err(anyhow!("unsupported web for gen: {other}")),
         };
 
         // 4) write

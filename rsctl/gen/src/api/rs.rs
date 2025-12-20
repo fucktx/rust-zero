@@ -49,7 +49,7 @@ pub mod shared {
     use anyhow::{anyhow, Context, Result};
     use crate::artifact::{Artifact, Artifacts};
     use std::path::{Path, PathBuf};
-    use utils::render::{render as tpl_render, Context as TplContext};
+    use utils::render;
 
     fn snake(s: &str) -> String {
         s.trim().to_ascii_lowercase()
@@ -252,7 +252,7 @@ pub mod shared {
         let mut files: Vec<Artifact> = Vec::new();
 
         // Base template context
-        let base_ctx = TplContext::new()
+        let base_ctx = render::Context::new()
             .set_str("version", "0.01")
             .set_str("serviceName", &service_name)
             .set_str("host", "0.0.0.0")
@@ -306,59 +306,59 @@ rest = {{ path = "rest" }}
         files.push(Artifact {
             rel_path: "rest/Cargo.toml".into(),
             content: r#"[package]
-name = "rest"
-version = "0.1.0"
-edition = "2024"
+                    name = "rest"
+                    version = "0.1.0"
+                    edition = "2024"
 
-[dependencies]
-serde = { version = "1", features = ["derive"] }
-"#
+                    [dependencies]
+                    serde = { version = "1", features = ["derive"] }
+                    "#
             .to_string(),
         });
         files.push(Artifact {
             rel_path: "rest/src/lib.rs".into(),
             content: r#"use serde::{Deserialize, Serialize};
 
-/// 最小 Rest 配置（对应 `etc/config.yaml` 的 Name/Host/Port）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct RestConf {
-    pub name: String,
-    pub host: String,
-    pub port: u16,
-}
+                    /// 最小 Rest 配置（对应 `etc/config.yaml` 的 Name/Host/Port）。
+                    #[derive(Debug, Clone, Serialize, Deserialize)]
+                    #[serde(rename_all = "PascalCase")]
+                    pub struct RestConf {
+                        pub name: String,
+                        pub host: String,
+                        pub port: u16,
+                    }
 
-impl Default for RestConf {
-    fn default() -> Self {
-        Self {
-            name: "api".to_string(),
-            host: "0.0.0.0".to_string(),
-            port: 8888,
-        }
-    }
-}
-"#
+                    impl Default for RestConf {
+                        fn default() -> Self {
+                            Self {
+                                name: "api".to_string(),
+                                host: "0.0.0.0".to_string(),
+                                port: 8888,
+                            }
+                        }
+                    }
+                    "#
             .to_string(),
         });
 
         files.push(Artifact {
             rel_path: "etc/config.yaml".into(),
-            content: tpl_render(&etc_tpl, &base_ctx).context("render etc.tpl")?,
+            content: render::render(&etc_tpl, &base_ctx).context("render etc.tpl")?,
         });
 
         // src root files
         files.push(Artifact {
             rel_path: "main.rs".into(),
-            content: tpl_render(&main_tpl, &base_ctx).context("render main.tpl")?,
+            content: render::render(&main_tpl, &base_ctx).context("render main.tpl")?,
         });
 
         files.push(Artifact {
             rel_path: "config.rs".into(),
-            content: tpl_render(&config_tpl, &base_ctx).context("render config.tpl")?,
+            content: render::render(&config_tpl, &base_ctx).context("render config.tpl")?,
         });
         files.push(Artifact {
             rel_path: "svc.rs".into(),
-            content: tpl_render(&svc_tpl, &base_ctx).context("render svc.tpl")?,
+            content: render::render(&svc_tpl, &base_ctx).context("render svc.tpl")?,
         });
 
         // handler root + routes
@@ -512,7 +512,7 @@ impl Default for RestConf {
                             .set_str("LogicType", format!("logic::{}Logic", pascal(h)))
                             .set_str("Call", h);
 
-                        s.push_str(&tpl_render(&handler_tpl, &ctx)?);
+                        s.push_str(&render::render(&handler_tpl, &ctx)?);
                         s.push('\n');
                     }
                     if !merge {
@@ -587,7 +587,7 @@ impl Default for RestConf {
                             .set_bool("hasDoc", false)
                             .set_bool("request", has_req)
                             .set_str("request", req_param);
-                        s.push_str(&tpl_render(&logic_tpl, &ctx)?);
+                        s.push_str(&render::render(&logic_tpl, &ctx)?);
                         s.push('\n');
                     }
                     if !merge {
@@ -630,7 +630,7 @@ impl Default for RestConf {
                         ));
                     }
                     let ctx = base_ctx.clone().set_bool("containsTime", false).set_str("types", decls.join("\n"));
-                    tpl_render(&types_tpl, &ctx)?
+                    render::render(&types_tpl, &ctx)?
                 },
             });
         }

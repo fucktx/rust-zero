@@ -29,14 +29,14 @@ rsctl -v
 rsctl api rs \
   -a rsctl/test/api.api \
   -d rsctl/test/out \
-  -f axum \
+  --web axum \
   -o
 ```
 
 参数说明：
 - `-a, --api`: `.api` 描述文件路径
 - `-d, --dir`: 输出目录
-- `-f, --framework`: 目标框架（当前支持 `axum`/`actix`，默认 `axum`）
+- `-f, --web`（或 `--framework`）: 目标框架（当前支持 `axum`/`actix`，默认 `axum`）
 - `-o, --overwrite`: 覆盖输出目录中已有文件
 - `-m, --merge`: 同组 handler 是否合并到一个文件（默认 true）
 - `-s, --style`: 生成的 `.rs` 文件命名风格：`rust_zero` / `rustZero` / `RustZero`

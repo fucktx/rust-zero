@@ -1,55 +1,72 @@
 use anyhow::{Context, Result};
-use pest::Parser;
-use pest_derive::Parser;
+use pest::Parser as PestParser;
+use pest_derive::Parser as PestDeriveParser;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct Ast {
+    /// 顶层条目列表（`service {}` 或顶层 `get/post/...` 路由）。
     pub items: Vec<Item>,
+    /// 原始输入文本（用于调试/错误定位/后续语义分析）。
     pub source: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum Item {
+    /// `service <name> { ... }`
     Service(Service),
+    /// 顶层路由（不在任何 `service {}` 块中）。
     Route(Route),
 }
 
 #[derive(Debug, Clone)]
 pub struct Service {
+    /// service 名称（来自 `service <name> {}`）。
     pub name: String,
+    /// service 级别注解（紧贴在 `service` 之前的 `@server(...)` 等）。
     pub annotations: Vec<Annotation>,
+    /// service 内部路由列表。
     pub routes: Vec<Route>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Route {
+    /// 路由级别注解（紧贴在路由语句之前的 `@handler` / `@doc` 等）。
     pub annotations: Vec<Annotation>,
+    /// HTTP 方法（如 `get`/`post`/`put`/`delete`/`patch`）。
     pub method: String,
+    /// 路由路径（如 `/user/info/:id`）。
     pub path: String,
+    /// 请求类型名（可选，对应 `post /x (Req)` 中的 `Req`）。
     pub request: Option<String>,
+    /// 响应类型名（可选，对应 `returns (Resp)` 中的 `Resp`）。
     pub response: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Annotation {
+    /// 注解名称（`@server` / `@doc` / `@handler` 等，不含 `@`）。
     pub name: String,
+    /// 注解参数（无参/单值/kv 映射）。
     pub args: AnnotationArgs,
 }
 
 #[derive(Debug, Clone)]
 pub enum AnnotationArgs {
+    /// 无参数：例如 `@server` 或 `@server()`
     None,
+    /// 单值参数：例如 `@doc "foo"` / `@handler login` / `@doc foo`
     Str(String),
+    /// kv 参数：例如 `@server ( prefix: /v1 group: Foo )`
     Map(Vec<(String, String)>),
 }
 
-#[derive(Parser)]
-#[grammar = "api/grammar.pest"]
-struct ApiDslParser;
+#[derive(PestDeriveParser)]
+#[grammar = "api.pest"]
+struct Parser;
 
 pub fn parse(input: &str) -> Result<Ast> {
-    let mut pairs = ApiDslParser::parse(Rule::file, input).context("parse api dsl")?;
+    let mut pairs = Parser::parse(Rule::file, input).context("parse api dsl")?;
     let file = pairs
         .next()
         .context("parse api dsl: missing file pair")?;

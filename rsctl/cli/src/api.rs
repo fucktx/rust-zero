@@ -44,10 +44,10 @@ pub struct RsArgs {
     /// Overwrite existing files when writing to disk (default: false).
     #[arg(short = 'o', long = "overwrite", action = clap::ArgAction::SetTrue)]
     pub overwrite: bool,
-
-    /// Target web framework name (default: axum)
-    #[arg(short = 'f', long = "framework", default_value = "axum")]
-    pub framework: String,
+    
+    /// - 推荐：`--web axum`
+    #[arg(short = 'f', long = "web",  default_value = "axum")]
+    pub web: String,
 }
 
 pub fn run(api: Api) -> Result<()> {
@@ -60,7 +60,7 @@ pub fn run(api: Api) -> Result<()> {
                 remote: args.remote,
                 merge: args.merge,
                 overwrite: args.overwrite,
-                framework: args.framework,
+                web: args.web,
             })
             .context("rsctl api rs failed")?;
         }
