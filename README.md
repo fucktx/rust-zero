@@ -1,9 +1,3 @@
-# rust-zero
-
-## web: actix-web
-
-## rpc: volo 
-
 ## rsctl：API 生成使用说明（Rust）
 
 ### 安装/构建 rsctl
