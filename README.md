@@ -7,7 +7,7 @@
 直接安装到系统 PATH：
 
 ```bash
-cargo install --git https://github.com/fucktx/rust-zero --bin rsctl
+cargo install --git https://github.com/fucktx/rust-zero --bin rsctl --force
 ```
 
 #### 方法2：克隆后本地安装
