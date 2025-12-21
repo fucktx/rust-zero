@@ -11,7 +11,7 @@ make build
 
 构建产物：
 - `rsctl/dist/rsctl`
-- macOS 额外可用：`make mac` → `rsctl/dist/rsctl-darwin`
+- macOS 额外可用：`make mac` → `rsctl/dist/rsctl`
 
 ### 查看 RS 生成器版本号
 
@@ -36,7 +36,7 @@ rsctl api rs \
 参数说明：
 - `-a, --api`: `.api` 描述文件路径
 - `-d, --dir`: 输出目录
-- `-f, --web`（或 `--framework`）: 目标框架（当前支持 `axum`/`actix`，默认 `axum`）
+-  `w, --web` : 目标框架（当前支持 `axum`/`actix`，默认 `axum`）
 - `-o, --overwrite`: 覆盖输出目录中已有文件
 - `-m, --merge`: 同组 handler 是否合并到一个文件（默认 true）
 - `-s, --style`: 生成的 `.rs` 文件命名风格：`rust_zero` / `rustZero` / `RustZero`
