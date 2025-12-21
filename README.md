@@ -50,3 +50,11 @@ cargo run main.rs
 ```
 
 如果端口被占用，会看到类似 `failed to bind ... Address already in use` 的提示；修改 `rsctl/test/out/etc/config.yaml` 的 `Port` 即可。
+
+### 生成结果如何接入本仓库的 `rest::router!`（零运行时抽象）
+
+当前生成的 `handler.rs` 会使用本仓库 `rest` crate 提供的 `rest::router!{...}` DSL 来构建路由：
+- **表面写法统一**（router/group/middleware 等语法）
+- **编译期展开为原生框架调用**（axum/actix），避免 `dyn/BoxFuture` 等运行时抽象成本
+
+默认生成（`--web axum`）会在生成工程的 `Cargo.toml` 里把 `rest` 依赖指向本仓库的 `rest` crate，并启用 `features = ["axum"]`。

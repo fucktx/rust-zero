@@ -87,14 +87,36 @@ pub mod rs {
         // 2) semantic -> spec (stable IR)
         let spec = semantic::api::to_spec(&ast).context("semantic to spec")?;
 
+        // 约束：如果存在多个 service 且名称不一致，直接报错（避免生成入口/工程名歧义）。
+        if !spec.services.is_empty() {
+            use std::collections::BTreeSet;
+            let mut names: BTreeSet<String> = BTreeSet::new();
+            for s in &spec.services {
+                names.insert(s.name.clone());
+            }
+            if names.len() > 1 {
+                return Err(anyhow!(
+                    "multiple different service names found: {:?}. Please use the same service name across the .api file.",
+                    names
+                ));
+            }
+        }
+
         // 3) gen -> artifacts
         let style = cfg.style.as_deref().unwrap_or("rust_zero");
-        let service_name = cfg
-            .api_file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("api")
-            .to_string();
+        // go-zero 风格：优先用 `.api` 里 `service <name>` 的名字作为工程/入口名。
+        // 如果没有任何 service（只有顶层 routes），再回退到文件名。
+        let service_name = spec
+            .services
+            .first()
+            .map(|s| s.name.clone())
+            .or_else(|| {
+                cfg.api_file
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "api".to_string());
 
         let artifacts = match web {
             "axum" => codegen::api::rs::axum::generate(
@@ -103,6 +125,7 @@ pub mod rs {
                     service_name,
                     merge: cfg.merge,
                     style: style.to_string(),
+                    out_dir: cfg.out_dir.clone(),
                     template_root: cfg.template_root.clone(),
                 },
             )?,
@@ -112,6 +135,7 @@ pub mod rs {
                     service_name,
                     merge: cfg.merge,
                     style: style.to_string(),
+                    out_dir: cfg.out_dir.clone(),
                     template_root: cfg.template_root.clone(),
                 },
             )?,
@@ -125,6 +149,22 @@ pub mod rs {
     }
 
     fn write_artifacts(cfg: &Config, artifacts: &codegen::artifact::Artifacts) -> Result<()> {
+        // 入口文件名规则：`<service>.rs`，若 service == "main" 则入口自然是 `main.rs`。
+        // 因为 `--overwrite` 不会自动删除旧文件，这里在 overwrite=true 且入口不是 main.rs 时，
+        // 主动清理残留的 `out_dir/main.rs`，避免误导用户。
+        if cfg.overwrite {
+            let has_entry_main = artifacts
+                .files
+                .iter()
+                .any(|f| f.rel_path.as_os_str() == "main.rs");
+            if !has_entry_main {
+                let main_rs = cfg.out_dir.join("main.rs");
+                if main_rs.exists() {
+                    let _ = fs::remove_file(&main_rs);
+                }
+            }
+        }
+
         for f in &artifacts.files {
             let path = cfg.out_dir.join(&f.rel_path);
             if let Some(parent) = path.parent() {
