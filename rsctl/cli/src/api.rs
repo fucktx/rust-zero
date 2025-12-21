@@ -46,7 +46,7 @@ pub struct RsArgs {
     pub overwrite: bool,
     
     /// - 推荐：`--web axum`
-    #[arg(short = 'f', long = "web",  default_value = "axum")]
+    #[arg(short = 'w', long = "web",  default_value = "axum")]
     pub web: String,
 }
 
