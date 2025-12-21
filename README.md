@@ -2,7 +2,37 @@
 
 ### 安装/构建 rsctl
 
-在仓库内构建（推荐）：
+#### 方法1：直接从 Git 仓库安装（推荐）
+
+直接安装到系统 PATH：
+
+```bash
+cargo install --git https://github.com/fucktx/rust-zero --bin rsctl
+```
+
+#### 方法2：克隆后本地安装
+
+```bash
+git clone https://github.com/fucktx/rust-zero.git
+cd rust-zero/rsctl
+cargo install --path cli --force
+```
+
+#### 方法3：本地构建
+
+```bash
+git clone https://github.com/fucktx/rust-zero.git
+cd rust-zero/rsctl
+make build
+```
+
+构建产物位于 `rsctl/dist/rsctl`，可手动加入 PATH 或直接使用。
+
+安装后即可在任意位置使用 `rsctl` 命令。
+
+#### 方法2：本地构建
+
+在仓库内构建：
 
 ```bash
 cd rsctl
@@ -10,14 +40,38 @@ make build
 ```
 
 构建产物：
-- `rsctl/dist/rsctl`
+- `rsctl/dist/rsctl` - Linux/macOS 二进制
 - macOS 额外可用：`make mac` → `rsctl/dist/rsctl`
 
-### 查看 RS 生成器版本号
+构建后可将 `rsctl/dist/rsctl` 加入系统 PATH，或直接使用 `./rsctl/dist/rsctl`。
 
-（这是 Rust API 生成器/模板版本号，不等同于 `rsctl --version` 的 CLI 版本）
+#### 跨平台构建
 
 ```bash
+# macOS (当前架构)
+make mac
+
+# macOS Intel (在 Apple Silicon 上)
+make mac-amd64
+
+# Linux x86_64
+make linux
+
+# Windows
+make win
+```
+
+#### Docker 方式
+
+```bash
+make image  # 构建 Docker 镜像
+```
+
+### 查看 rsctl 版本
+
+```bash
+rsctl --version
+# 或者
 rsctl -v
 ```
 
