@@ -148,6 +148,132 @@ pub mod shared {
         find_kv(srv, "jwt").map(|s| s.to_string())
     }
 
+    fn tag_kv_map(tag: &str) -> std::collections::BTreeMap<String, String> {
+        // Parse `json:"x",validate:"min=1,max=2"` (order-insensitive, best-effort).
+        let mut out = std::collections::BTreeMap::new();
+        let mut i = 0usize;
+        let b = tag.as_bytes();
+        while i < b.len() {
+            while i < b.len() && (b[i] == b' ' || b[i] == b',' || b[i] == b'\t') {
+                i += 1;
+            }
+            let start = i;
+            while i < b.len() && (b[i] as char).is_ascii_alphanumeric() {
+                i += 1;
+            }
+            if i == start || i >= b.len() || b[i] != b':' {
+                break;
+            }
+            let key = &tag[start..i];
+            i += 1; // skip ':'
+            if i >= b.len() || b[i] != b'"' {
+                break;
+            }
+            i += 1; // skip '"'
+            let val_start = i;
+            while i < b.len() && b[i] != b'"' {
+                i += 1;
+            }
+            if i >= b.len() {
+                break;
+            }
+            let val = &tag[val_start..i];
+            i += 1; // skip closing '"'
+            out.insert(key.to_string(), val.to_string());
+        }
+        out
+    }
+
+    fn api_ty_to_rust(g: &str, api_ty: &str) -> String {
+        // `[]T` -> `Vec<T>`
+        if let Some(inner) = api_ty.strip_prefix("[]") {
+            return format!("Vec<{}>", api_ty_to_rust(g, inner));
+        }
+
+        match api_ty {
+            "string" => "String".into(),
+            "bool" => "bool".into(),
+            "int" | "int64" => "i64".into(),
+            "int32" => "i32".into(),
+            "uint" | "uint64" => "u64".into(),
+            "uint32" => "u32".into(),
+            "float32" => "f32".into(),
+            "float64" => "f64".into(),
+            other => format!("crate::types::{g}::types::{other}"),
+        }
+    }
+
+    fn validate_attrs(field_rust_ty: &str, validate_tag: &str) -> Vec<String> {
+        // Map a small, useful subset of go-validate tags to `validator` crate:
+        // - string: min/max -> length(min/max)
+        // - numeric: min/max -> range(min/max)
+        // - email/url/required -> corresponding validators
+        let mut out = Vec::new();
+        let items = validate_tag
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>();
+
+        let is_string = field_rust_ty == "String";
+        let is_num = matches!(field_rust_ty, "i64" | "i32" | "u64" | "u32" | "f64" | "f32");
+
+        let mut min_v: Option<i64> = None;
+        let mut max_v: Option<i64> = None;
+        for it in &items {
+            if *it == "email" {
+                out.push("#[validate(email)]".into());
+                continue;
+            }
+            if *it == "url" {
+                out.push("#[validate(url)]".into());
+                continue;
+            }
+            if *it == "required" {
+                out.push("#[validate(required)]".into());
+                continue;
+            }
+            if let Some((k, v)) = it.split_once('=') {
+                let v = v.parse::<i64>().ok();
+                match (k.trim(), v) {
+                    ("min", Some(n)) => min_v = Some(n),
+                    ("max", Some(n)) => max_v = Some(n),
+                    _ => {}
+                }
+            }
+        }
+
+        if is_string {
+            let mut parts = Vec::new();
+            if let Some(n) = min_v {
+                if n > 0 {
+                    parts.push(format!("min = {n}"));
+                }
+            }
+            if let Some(n) = max_v {
+                if n > 0 {
+                    parts.push(format!("max = {n}"));
+                }
+            }
+            if !parts.is_empty() {
+                out.push(format!("#[validate(length({}))]", parts.join(", ")));
+            }
+        } else if is_num {
+            let mut parts = Vec::new();
+            if let Some(n) = min_v {
+                parts.push(format!("min = {n}"));
+            }
+            if let Some(n) = max_v {
+                parts.push(format!("max = {n}"));
+            }
+            if !parts.is_empty() {
+                out.push(format!("#[validate(range({}))]", parts.join(", ")));
+            }
+        }
+
+        out
+    }
+
     fn join_paths(prefix: &str, path: &str) -> String {
         let pfx = prefix.trim_end_matches('/');
         let mut p = path.to_string();
@@ -353,6 +479,20 @@ pub mod shared {
             "[\"axum\"]"
         };
 
+        // validator（按 type 字段 tag 是否包含 validate:"..." 决定）
+        let use_validator = spec.types.iter().any(|t| {
+            t.fields.iter().any(|f| {
+                f.tag.as_ref().is_some_and(|tag| tag.contains("validate:\""))
+            })
+        });
+
+        let validator_dep = if use_validator {
+            // validator crate: see https://github.com/Keats/validator
+            "validator = { version = \"0.19\", features = [\"derive\"] }"
+        } else {
+            ""
+        };
+
         files.push(Artifact {
             rel_path: "Cargo.toml".into(),
             content: format!(
@@ -375,6 +515,7 @@ tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
 tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
 rest = {{ path = "{rest_rel}", features = {rest_features} }}
+{validator_dep}
 
 [workspace]
 
@@ -502,7 +643,7 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
             handler_root.push_str(&mod_decl_with_path("handler", g, &file_base));
         }
         handler_root.push('\n');
-        handler_root.push_str("pub fn register_handlers(svc_ctx: Arc<ServiceContext>) -> Router {\n");
+        handler_root.push_str("pub fn register_handlers(svc_ctx: Arc<ServiceContext>) -> Router<Arc<ServiceContext>> {\n");
         handler_root.push_str("    routes::register_routes(svc_ctx)\n");
         handler_root.push_str("}\n");
         files.push(Artifact {
@@ -517,8 +658,8 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
             routes_rs.push_str("use std::sync::Arc;\n\n");
             routes_rs.push_str("use axum::Router;\n");
             routes_rs.push_str("use crate::svc::ServiceContext;\n\n");
-            routes_rs.push_str("pub fn register_routes(svc_ctx: Arc<ServiceContext>) -> Router {\n");
-            routes_rs.push_str("    let mut app = Router::new().route(\"/healthz\", axum::routing::get(|| async { \"ok\" }));\n");
+            routes_rs.push_str("pub fn register_routes(svc_ctx: Arc<ServiceContext>) -> Router<Arc<ServiceContext>> {\n");
+            routes_rs.push_str("    let mut app = Router::<Arc<ServiceContext>>::new().route(\"/healthz\", axum::routing::get(|| async { \"ok\" }));\n");
 
             // 逐个 service 生成 add_routes，才能保留 @server(middleware/jwt/...) 的 option 信息。
             // 但如果同一个 method+full_path 在多个 service 块里重复出现，axum 会在启动时 panic。
@@ -579,8 +720,8 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
 
             for (idx, service) in spec.services.iter().enumerate() {
                 let group = effective_group(service);
-                let group = snake(&group);
-                let prefix = service_prefix(service).unwrap_or_default();
+            let group = snake(&group);
+            let prefix = service_prefix(service).unwrap_or_default();
                 let mw = service_middleware(service);
                 let jwt = service_jwt(service);
 
@@ -588,10 +729,10 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                 routes_rs.push_str("        [\n");
 
                 let mut any = false;
-                for r in &service.routes {
-                    let Some(h) = route_handler_name(r) else { continue };
-                    let h = snake(&h);
-                    let method = match r.method {
+            for r in &service.routes {
+                let Some(h) = route_handler_name(r) else { continue };
+                let h = snake(&h);
+                let method = match r.method {
                         spec::api::HttpMethod::Get => "GET",
                         spec::api::HttpMethod::Post => "POST",
                         spec::api::HttpMethod::Put => "PUT",
@@ -603,8 +744,8 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                     let route_key = format!("{method} {full_path}");
                     let Some(w) = winners.get(&route_key) else { continue };
                     if w.service_idx != idx {
-                        continue;
-                    }
+                    continue;
+                }
 
                     any = true;
                     routes_rs.push_str(&format!(
@@ -627,18 +768,21 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                     let jwt_field = snake(&jwt_name);
                     routes_rs.push_str(&format!(
                         "        // @server(jwt: {jwt_name})\n        rest::WithJwt(svc_ctx.config.{jwt_field}.access_secret.clone()),\n"
-                    ));
-                }
-                routes_rs.push_str("    ));\n");
+                ));
+            }
+                // `rest::add_routes!` 产出的 Router 默认是 `Router<()>`，这里用 `.with_state::<Arc<ServiceContext>>(())`
+                // 做“类型切换”，让它能 merge 到 `Router<Arc<ServiceContext>>` 中（真正的 state 值由上层 Server 注入）。
+                routes_rs.push_str("    ).with_state::<Arc<ServiceContext>>(()) );\n");
 
                 let _ = any; // 允许空块（即便没有 routes），保持结构简单
             }
 
+            // svc_ctx 已用于构造 handler；Router 的真实 state 值由上层 `rest::Server::with_state(svc_ctx)` 注入。
             routes_rs.push_str("    app\n");
             routes_rs.push_str("}\n");
 
-            files.push(Artifact {
-                rel_path: "handler/routes.rs".into(),
+        files.push(Artifact {
+            rel_path: "handler/routes.rs".into(),
                 content: routes_rs,
             });
         }
@@ -659,7 +803,7 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                 for m in &mws {
                     root.push_str(&format!("pub mod {m};\n"));
                 }
-                files.push(Artifact {
+        files.push(Artifact {
                     rel_path: "middleware.rs".into(),
                     content: root,
                 });
@@ -686,7 +830,7 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
 "#,
                             m = m
                         ),
-                    });
+        });
                 }
             }
         }
@@ -729,13 +873,66 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                     s.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
                     s.push_str("// rsctl 0.01\n\n");
                     s.push_str("use std::sync::Arc;\n");
+                    // 选择 extractor：Json / Path / Form（按 request struct 字段 tag 决定）
+                    let mut need_json = false;
+                    let mut need_path = false;
+                    let mut need_form = false;
+                    let mut need_validate = false;
+
+                    let type_map: std::collections::BTreeMap<String, &spec::api::TypeDef> =
+                        spec.types.iter().map(|t| (t.name.clone(), t)).collect();
+
+                    for service in &spec.services {
+                        let gg = effective_group(service);
+                        if snake(&gg) != *g {
+                            continue;
+                        }
+                        for r in &service.routes {
+                            let Some(req) = &r.request else { continue };
+                            if let Some(td) = type_map.get(req) {
+                                for f in &td.fields {
+                                    let Some(tag) = &f.tag else { continue };
+                                    let m = tag_kv_map(tag);
+                                    if m.contains_key("path") {
+                                        need_path = true;
+                                    }
+                                    if m.contains_key("form") {
+                                        need_form = true;
+                                    }
+                                    if m.contains_key("json") {
+                                        need_json = true;
+                                    }
+                                    if m.contains_key("validate") {
+                                        need_validate = true;
+                                    }
+                                }
+                            } else {
+                                // 未知 type：默认按 Json 处理
+                                need_json = true;
+                            }
+                        }
+                    }
+
                     s.push_str("use axum::{\n");
-                    s.push_str("    extract::Json,\n");
+                    s.push_str("    extract::{\n");
+                    if need_json {
+                        s.push_str("        Json,\n");
+                    }
+                    if need_path {
+                        s.push_str("        Path,\n");
+                    }
+                    if need_form {
+                        s.push_str("        Form,\n");
+                    }
+                    s.push_str("    },\n");
                     s.push_str("    http::StatusCode,\n");
                     s.push_str("    response::IntoResponse,\n");
                     s.push_str("    routing::{delete, get, patch, post, put, MethodRouter},\n");
                     s.push_str("};\n");
                     s.push_str("use crate::svc::ServiceContext;\n\n");
+                    if need_validate {
+                        s.push_str("use validator::Validate;\n\n");
+                    }
                     for h in hs {
                         // Find a representative route in this group with this handler.
                         // We only use it to populate request/response/doc metadata.
@@ -766,20 +963,63 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                             }
                         }
 
-                        let req_ty = req
+                        let req_rust = req
                             .as_deref()
-                            .map(|t| format!("{g}::types::{}", t))
+                            .map(|t| api_ty_to_rust(g, t))
                             .unwrap_or_default();
-                        let resp_ty = resp
+                        let resp_rust = resp
                             .as_deref()
-                            .map(|t| format!("{g}::types::{}", t))
-                            .unwrap_or_default();
+                            .map(|t| {
+                                // 返回类型可能是 `[]T`，逻辑层也需要返回 Vec<T>
+                                if let Some(inner) = t.strip_prefix("[]") {
+                                    format!("anyhow::Result<Vec<{}>>", api_ty_to_rust(g, inner))
+                                } else {
+                                    format!("anyhow::Result<{}>", api_ty_to_rust(g, t))
+                                }
+                            })
+                            .unwrap_or_else(|| "anyhow::Result<()>".to_string());
+
+                        // extractor kind + 是否需要 validate
+                        let mut extractor = "Json".to_string();
+                        let mut needs_validate = false;
+                        if let Some(req_name) = req.as_deref() {
+                            if let Some(td) = type_map.get(req_name) {
+                                let mut has_path = false;
+                                let mut has_form = false;
+                                let mut has_json = false;
+                                for f in &td.fields {
+                                    let Some(tag) = &f.tag else { continue };
+                                    let m = tag_kv_map(tag);
+                                    if m.contains_key("path") {
+                                        has_path = true;
+                                    }
+                                    if m.contains_key("form") {
+                                        has_form = true;
+                                    }
+                                    if m.contains_key("json") {
+                                        has_json = true;
+                                    }
+                                    if m.contains_key("validate") {
+                                        needs_validate = true;
+                                    }
+                                }
+                                // 简化规则：path-only -> Path；form-only -> Form；否则 Json。
+                                if has_path && !has_form && !has_json {
+                                    extractor = "Path".into();
+                                } else if has_form && !has_path && !has_json {
+                                    extractor = "Form".into();
+                                } else {
+                                    extractor = "Json".into();
+                                }
+                            }
+                        }
 
                         let ctx = base_ctx
                             .clone()
                             .set_bool("HasRequest", req.is_some())
                             .set_bool("HasResp", resp.is_some())
                             .set_bool("HasDoc", doc.is_some())
+                            .set_bool("HasValidate", needs_validate)
                             .set_str(
                                 "Doc",
                                 doc.as_ref()
@@ -787,8 +1027,9 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                                     .unwrap_or_default(),
                             )
                             .set_str("HandlerName", h)
-                            .set_str("RequestType", req_ty)
-                            .set_str("ResponseType", resp_ty)
+                            .set_str("RequestRustType", req_rust)
+                            .set_str("ResponseRustType", resp_rust)
+                            .set_str("Extractor", extractor)
                             .set_str("LogicName", g)
                             .set_str("LogicType", format!("logic::{}Logic", pascal(h)))
                             .set_str("Call", h)
@@ -854,16 +1095,21 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                         let has_resp = resp.is_some();
                         let req_param = req
                             .as_deref()
-                            .map(|t| format!("req: crate::types::{g}::types::{t}"))
+                            .map(|t| format!("req: {}", api_ty_to_rust(g, t)))
                             .unwrap_or_default();
+
                         let resp_ty = resp
                             .as_deref()
-                            .map(|t| format!("crate::types::{g}::types::{t}"))
+                            .map(|t| api_ty_to_rust(g, t))
                             .unwrap_or_else(|| "()".to_string());
 
                         let response_type = format!("anyhow::Result<{resp_ty}>");
                         let return_string = if has_resp {
-                            format!("Ok({resp_ty} {{}})")
+                            if resp.as_deref().is_some_and(|t| t.starts_with("[]")) {
+                                "Ok(Vec::new())".to_string()
+                            } else {
+                                format!("Ok({resp_ty}::default())")
+                            }
                         } else {
                             "Ok(())".to_string()
                         };
@@ -897,9 +1143,13 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
             files.push(Artifact {
                 rel_path: format!("types/{g}/types.rs").into(),
                 content: {
-                    // minimal type stubs for referenced request/response types in this group
+                    // generate structs for referenced request/response types in this group
                     let mut decls: Vec<String> = Vec::new();
                     let mut seen = std::collections::BTreeSet::<String>::new();
+                    let type_map: std::collections::BTreeMap<String, &spec::api::TypeDef> =
+                        spec.types.iter().map(|t| (t.name.clone(), t)).collect();
+                    let mut need_validate = false;
+
                     for service in &spec.services {
                         let gg = effective_group(service);
                         if snake(&gg) != *g {
@@ -907,20 +1157,78 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                         }
                         for r in &service.routes {
                             if let Some(t) = &r.request {
+                                if let Some(inner) = t.strip_prefix("[]") {
+                                    seen.insert(inner.to_string());
+                                } else {
                                 seen.insert(t.clone());
+                                }
                             }
                             if let Some(t) = &r.response {
+                                if let Some(inner) = t.strip_prefix("[]") {
+                                    seen.insert(inner.to_string());
+                                } else {
                                 seen.insert(t.clone());
+                                }
                             }
                         }
                     }
                     for t in seen {
+                        // array type in returns: `[]T` is not a struct, skip
+                        if t.starts_with("[]") {
+                            continue;
+                        }
+
+                        if let Some(td) = type_map.get(&t) {
+                            let mut s = String::new();
+                            // decide derives: request/response structs both derive Deserialize/Serialize
+                            // and optionally Validate when any field has validate tag.
+                            let mut has_validate = false;
+                            for f in &td.fields {
+                                if let Some(tag) = &f.tag {
+                                    let m = tag_kv_map(tag);
+                                    if m.contains_key("validate") {
+                                        has_validate = true;
+                                    }
+                                }
+                            }
+                            if has_validate {
+                                need_validate = true;
+                                s.push_str("#[derive(Debug, Clone, Serialize, Deserialize, Validate, Default)]\n");
+                            } else {
+                                s.push_str("#[derive(Debug, Clone, Serialize, Deserialize, Default)]\n");
+                            }
+                            s.push_str(&format!("pub struct {} {{\n", td.name));
+
+                            for f in &td.fields {
+                                let rust_ty = api_ty_to_rust(g, &f.ty);
+                                if let Some(tag) = &f.tag {
+                                    let m = tag_kv_map(tag);
+                                    // serde rename for json/form/path
+                                    if let Some(v) = m.get("json").or_else(|| m.get("form")).or_else(|| m.get("path")) {
+                                        s.push_str(&format!("    #[serde(rename = \"{}\")]\n", v));
+                                    }
+                                    if let Some(v) = m.get("validate") {
+                                        for a in validate_attrs(rust_ty.as_str(), v) {
+                                            s.push_str(&format!("    {}\n", a));
+                                        }
+                                    }
+                                }
+                                s.push_str(&format!("    pub {}: {},\n", snake(&f.name), rust_ty));
+                            }
+                            s.push_str("}\n");
+                            decls.push(s);
+                        } else {
                         decls.push(format!(
                             "#[derive(Debug, Clone, Serialize, Deserialize, Default)]\npub struct {} {{}}\n",
                             t
                         ));
                     }
-                    let ctx = base_ctx.clone().set_bool("containsTime", false).set_str("types", decls.join("\n"));
+                    }
+                    let ctx = base_ctx
+                        .clone()
+                        .set_bool("containsTime", false)
+                        .set_bool("containsValidate", need_validate)
+                        .set_str("types", decls.join("\n"));
                     render::render(&types_tpl, &ctx)?
                 },
             });

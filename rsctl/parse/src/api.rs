@@ -17,6 +17,8 @@ pub enum Item {
     Service(Service),
     /// 顶层路由（不在任何 `service {}` 块中）。
     Route(Route),
+    /// `type Xxx { ... }`
+    Type(TypeDef),
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +43,19 @@ pub struct Route {
     pub request: Option<String>,
     /// 响应类型名（可选，对应 `returns (Resp)` 中的 `Resp`）。
     pub response: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeDef {
+    pub name: String,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Field {
+    pub name: String,
+    pub ty: String,
+    pub tag: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +91,13 @@ pub fn parse(input: &str) -> Result<Ast> {
 
     for p in file.into_inner() {
         match p.as_rule() {
+            Rule::syntax_stmt | Rule::info_block => {
+                // ignore
+            }
+            Rule::type_block => {
+                let td = parse_type_block(p)?;
+                items.push(Item::Type(td));
+            }
             Rule::annotation_stmt => {
                 if let Some(ann) = parse_annotation_stmt(p)? {
                     pending_annotations.push(ann);
@@ -99,6 +121,49 @@ pub fn parse(input: &str) -> Result<Ast> {
         items,
         source: input.to_string(),
     })
+}
+
+fn parse_type_block(pair: pest::iterators::Pair<Rule>) -> Result<TypeDef> {
+    let mut inner = pair.into_inner();
+    let name = inner
+        .next()
+        .context("type: missing name")?
+        .as_str()
+        .to_string();
+
+    let mut fields: Vec<Field> = Vec::new();
+    for p in inner {
+        if p.as_rule() == Rule::field_stmt {
+            fields.push(parse_field_stmt(p)?);
+        }
+    }
+
+    Ok(TypeDef { name, fields })
+}
+
+fn parse_field_stmt(pair: pest::iterators::Pair<Rule>) -> Result<Field> {
+    let mut inner = pair.into_inner();
+    let name = inner
+        .next()
+        .context("field: missing name")?
+        .as_str()
+        .to_string();
+    let ty = inner
+        .next()
+        .context("field: missing type")?
+        .as_str()
+        .to_string();
+
+    let tag = inner.next().map(|p| {
+        // strip surrounding backticks
+        let s = p.as_str();
+        s.strip_prefix('`')
+            .and_then(|t| t.strip_suffix('`'))
+            .unwrap_or(s)
+            .to_string()
+    });
+
+    Ok(Field { name, ty, tag })
 }
 
 pub fn parse_file(path: impl AsRef<Path>) -> Result<Ast> {
@@ -173,17 +238,21 @@ fn parse_route_stmt(pair: pest::iterators::Pair<Rule>) -> Result<Route> {
         .as_str()
         .to_string();
 
-    // Optional: type_name, type_name (from returns)
     let mut request: Option<String> = None;
     let mut response: Option<String> = None;
     for p in inner {
-        if p.as_rule() == Rule::type_name {
-            let t = p.as_str().to_string();
-            if request.is_none() {
-                request = Some(t);
-            } else if response.is_none() {
-                response = Some(t);
+        match p.as_rule() {
+            Rule::request_part => {
+                if let Some(t) = p.into_inner().find(|x| x.as_rule() == Rule::type_ref) {
+                    request = Some(t.as_str().to_string());
+                }
             }
+            Rule::response_part => {
+                if let Some(t) = p.into_inner().find(|x| x.as_rule() == Rule::type_ref) {
+                    response = Some(t.as_str().to_string());
+            }
+            }
+            _ => {}
         }
     }
 

@@ -9,6 +9,8 @@ pub mod web;
 // 方便上层（以及 rsctl 模板）直接 `use rest::RestConf;`
 pub use config::RestConf;
 pub use engine::Engine;
+#[cfg(feature = "axum")]
+pub use server::Server;
 
 /// go-zero 风格 options：写法类似 `rest::WithPrefix("/api/v1")`。
 ///

@@ -33,7 +33,22 @@ value = _{ string | duration | path | bare }
 file = { SOI ~ stmt* ~ EOI }
 
 // 顶层语句：注解、service 块、或单独的 route（无 service 时）
-stmt = _{ annotation_stmt | service_block | route_stmt }
+stmt = _{ syntax_stmt | info_block | type_block | annotation_stmt | service_block | route_stmt }
+
+// =========
+// goctl 风格：syntax/info/type
+// =========
+syntax_stmt = { "syntax" ~ "=" ~ string }
+
+// info ( key: value ... )
+info_block = { "info" ~ "(" ~ kv_list? ~ ")" }
+
+// type Xxx { Field Type `tag:"v",validate:"..."` }
+type_block = { "type" ~ ident ~ "{" ~ field_stmt* ~ "}" }
+field_stmt = { ident ~ type_ref ~ tag? }
+
+// raw tag inside backticks
+tag = @{ "`" ~ (!"`" ~ ANY)* ~ "`" }
 
 // =========
 // 注解（@server/@doc/@handler...）
@@ -73,11 +88,10 @@ service_item = _{ annotation_stmt | route_stmt }
 // - post /foo returns (Resp)
 // - post /foo (Req) returns (Resp)
 method = { "get" | "post" | "put" | "delete" | "patch" }
-type_name = { ident }
-route_stmt = {
-  method ~ path
-  ~ ("(" ~ type_name ~ ")")?
-  ~ ("returns" ~ "(" ~ type_name ~ ")")?
-}
+type_ref = { "[]"* ~ ident }
+request_part = { "(" ~ type_ref ~ ")" }
+response_part = { "returns" ~ "(" ~ type_ref ~ ")" }
+
+route_stmt = { method ~ path ~ request_part? ~ response_part? }
 
 

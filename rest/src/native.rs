@@ -1,5 +1,5 @@
 //! 原生框架入口（零运行时抽象成本）：
-//! - `feature="axum"`：直接运行 `axum::Router`
+//! - `feature="axum"`：直接运行 `axum::Router`（即 `Router<()>`）
 //! - `feature="actix"`：直接运行 actix 的 `HttpServer::new(factory)`
 
 /// 运行原生框架（按 feature 选择）。

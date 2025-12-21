@@ -42,14 +42,14 @@ async fn main() -> anyhow::Result<()> {
     let svc_ctx = Arc::new(svc::ServiceContext::new(c.clone()));
 
     // server := rest.MustNewServer(c.RestConf)
-    let engine = rest::Engine::new(c.rest.clone());
+    let server = rest::Server::must_new::<Arc<svc::ServiceContext>>(c.rest.clone());
 
     // handler.RegisterHandlers(server, ctx)
-    let app = handler::register_handlers(svc_ctx);
+    let app = handler::register_handlers(svc_ctx.clone());
 
     println!("Starting server at {}:{}...", c.rest.host, c.rest.port);
 
     // server.Start()
-    rest::native::run(engine, app).await?;
+    server.add_routes(app).with_state(svc_ctx).start().await?;
     Ok(())
 }

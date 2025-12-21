@@ -6,6 +6,8 @@ pub struct Spec {
     pub services: Vec<Service>,
     /// Routes outside any `service {}` block.
     pub routes: Vec<Route>,
+    /// Type definitions (`type Xxx { ... }`) for request/response schemas.
+    pub types: Vec<TypeDef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +24,21 @@ pub struct Route {
     pub path: String,
     pub request: Option<String>,
     pub response: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeDef {
+    pub name: String,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Field {
+    pub name: String,
+    /// Raw api type, e.g. `string`, `int64`, `[]Foo`.
+    pub ty: String,
+    /// Raw tag content inside backticks, e.g. `json:"id",validate:"min=1"`.
+    pub tag: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

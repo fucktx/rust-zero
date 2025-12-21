@@ -3,15 +3,32 @@ use anyhow::{anyhow, Result};
 pub fn to_spec(ast: &parse::api::Ast) -> Result<spec::api::Spec> {
     let mut services = Vec::new();
     let mut routes = Vec::new();
+    let mut types = Vec::new();
 
     for item in &ast.items {
         match item {
             parse::api::Item::Service(s) => services.push(service_to_spec(s)?),
             parse::api::Item::Route(r) => routes.push(route_to_spec(r)?),
+            parse::api::Item::Type(t) => types.push(type_to_spec(t)?),
         }
     }
 
-    Ok(spec::api::Spec { services, routes })
+    Ok(spec::api::Spec { services, routes, types })
+}
+
+fn type_to_spec(t: &parse::api::TypeDef) -> Result<spec::api::TypeDef> {
+    Ok(spec::api::TypeDef {
+        name: t.name.clone(),
+        fields: t
+            .fields
+            .iter()
+            .map(|f| spec::api::Field {
+                name: f.name.clone(),
+                ty: f.ty.clone(),
+                tag: f.tag.clone(),
+            })
+            .collect(),
+    })
 }
 
 fn service_to_spec(svc: &parse::api::Service) -> Result<spec::api::Service> {

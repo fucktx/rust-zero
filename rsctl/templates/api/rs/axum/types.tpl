@@ -4,6 +4,9 @@
 // rsctl {{.version}}
 
 use serde::{Deserialize, Serialize};
+{{if .containsValidate}}
+use validator::Validate;
+{{end}}
 
 {{if .containsTime}}
 use chrono::{DateTime, Utc};

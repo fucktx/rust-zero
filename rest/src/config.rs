@@ -12,7 +12,7 @@ pub struct MiddlewaresConf {
     #[serde(default = "default_true")]
     pub prometheus: bool,
     #[serde(default = "default_true")]
-    pub max_conns: bool,
+    pub max_connections: bool,
     #[serde(default = "default_true")]
     pub breaker: bool,
     #[serde(default = "default_true")]
@@ -39,7 +39,7 @@ impl Default for MiddlewaresConf {
             trace: true,
             log: true,
             prometheus: true,
-            max_conns: true,
+            max_connections: true,
             breaker: true,
             shedding: true,
             timeout: true,
@@ -99,7 +99,7 @@ fn default_host() -> String {
 fn default_port() -> u16 {
     8888
 }
-fn default_max_conns() -> i64 {
+fn default_max_connections() -> i64 {
     10_000
 }
 fn default_max_bytes() -> i64 {
@@ -133,8 +133,8 @@ pub struct RestConf {
     #[serde(default)]
     pub verbose: bool,
 
-    #[serde(default = "default_max_conns")]
-    pub max_conns: i64,
+    #[serde(default = "default_max_connections")]
+    pub max_connections: i64,
     #[serde(default = "default_max_bytes")]
     pub max_bytes: i64,
 
@@ -167,7 +167,7 @@ impl Default for RestConf {
             cert_file: None,
             key_file: None,
             verbose: false,
-            max_conns: default_max_conns(),
+            max_connections: default_max_connections(),
             max_bytes: default_max_bytes(),
             timeout: default_timeout_ms(),
             cpu_threshold: default_cpu_threshold(),
@@ -206,7 +206,7 @@ mod tests {
         let c = RestConf::default();
         assert_eq!(c.host, "0.0.0.0");
         assert!(c.port > 0);
-        assert_eq!(c.max_conns, 10_000);
+        assert_eq!(c.max_connections, 10_000);
         assert_eq!(c.max_bytes, 1_048_576);
         assert_eq!(c.timeout, 3_000);
         assert_eq!(c.cpu_threshold, 900);

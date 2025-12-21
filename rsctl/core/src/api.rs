@@ -112,8 +112,8 @@ pub mod rs {
             .map(|s| s.name.clone())
             .or_else(|| {
                 cfg.api_file
-                    .file_stem()
-                    .and_then(|s| s.to_str())
+            .file_stem()
+            .and_then(|s| s.to_str())
                     .map(|s| s.to_string())
             })
             .unwrap_or_else(|| "api".to_string());

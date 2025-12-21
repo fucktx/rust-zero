@@ -31,7 +31,7 @@ mac:
 	# If you need Intel binary on Apple Silicon: `make mac-amd64` (requires: rustup target add x86_64-apple-darwin)
 	cargo build -p $(CRATE) --release --target $(MAC_TARGET)
 	mkdir -p $(DIST)
-	cp target/$(MAC_TARGET)/release/$(CRATE) $(DIST)/$(BIN)-darwin
+	cp target/$(MAC_TARGET)/release/$(CRATE) $(DIST)/$(BIN)
 
 mac-amd64:
 	cargo build -p $(CRATE) --release --target x86_64-apple-darwin
