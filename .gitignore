@@ -3,7 +3,7 @@
 **/.vscode
 **/.DS_Store
 */target
-cursor
+.cursor
 rsctl/.cargo
 rsctl/.tmp
 rsctl/dist

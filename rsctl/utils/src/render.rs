@@ -88,7 +88,7 @@ pub fn render(input: &str, ctx: &Context) -> Result<String> {
         let end = after_open + rel_end;
         let action = input[after_open..end].trim();
 
-        // Advance cursor past "}}"
+        // Advance .cursor past "}}"
         i = end + 2;
 
         // Control actions
