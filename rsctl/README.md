@@ -38,9 +38,8 @@ make build
 # 初始化：安装当前版本模板（已存在则不覆盖）
 rsctl template init
 
-# 清理：只删除当前版本模板目录（支持拼写兼容：celan）
+# 清理：只删除当前版本模板目录
 rsctl template clean
-rsctl template celan
 
 # 更新：覆盖安装当前版本模板
 rsctl template update
