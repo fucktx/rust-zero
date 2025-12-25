@@ -3,10 +3,16 @@ use clap::{CommandFactory, Parser, Subcommand};
 
 mod api;
 mod model;
+mod template;
 mod version;
 
 #[derive(Debug, Parser)]
-#[command(name = "rsctl", version, disable_version_flag = true, about = "Code generator CLI")]
+#[command(
+    name = "rsctl",
+    version,
+    disable_version_flag = true,
+    about = "Code generator CLI"
+)]
 struct App {
     #[arg(short = 'v', long = "version", global = true, action = clap::ArgAction::SetTrue)]
     version: bool,
@@ -27,6 +33,11 @@ enum Command {
         #[command(subcommand)]
         model: model::Model,
     },
+    /// Manage built-in templates (install/clean/update)
+    Template {
+        #[command(subcommand)]
+        template: template::Template,
+    },
     // Rpc {
     //     #[command(subcommand)]
     //
@@ -38,6 +49,13 @@ fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    // Let downstream crates (core/utils) resolve templates by current rsctl version.
+    // (e.g. ~/.rsctl/<VERSION>/)
+    // Rust 2024: 修改进程环境变量是 `unsafe`（与并发读写相关）。
+    unsafe {
+        std::env::set_var("RSCTL_VERSION", version::VERSION);
+    }
+
     let argv = preprocess_argv_for_legacy_flags(std::env::args_os().collect());
     let app = App::parse_from(argv);
 
@@ -46,10 +64,10 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-
     match app.command {
         Some(Command::Api { api }) => api::run(api)?,
         Some(Command::Model { model }) => model::run(model)?,
+        Some(Command::Template { template }) => template::run(template)?,
         None => {
             // No subcommand, no -v: show help
             let mut cmd = App::command();

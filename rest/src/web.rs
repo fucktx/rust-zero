@@ -120,7 +120,7 @@ impl Router {
     /// 注册路由（支持 matchit 风格参数，例如 `/user/:id`）。
     pub fn route(mut self, method: HttpMethod, path: &str, handler: Handler) -> Self {
         let mut routes_map = (*self.routes).clone();
-        let entry = routes_map.entry(method).or_insert_with(matchit::Router::new);
+        let entry = routes_map.entry(method).or_default();
         entry.insert(path, handler).expect("invalid route pattern");
         self.routes = Arc::new(routes_map);
         self
@@ -204,11 +204,11 @@ pub mod middleware {
 pub async fn run(engine: Engine, router: Router) -> anyhow::Result<()> {
     #[cfg(all(feature = "axum", not(feature = "actix")))]
     {
-        return axum_impl::run(engine, router).await;
+        axum_impl::run(engine, router).await
     }
     #[cfg(all(feature = "actix", not(feature = "axum")))]
     {
-        return actix_impl::run(engine, router).await;
+        actix_impl::run(engine, router).await
     }
     #[cfg(all(feature = "axum", feature = "actix"))]
     {
@@ -226,9 +226,9 @@ pub async fn run(engine: Engine, router: Router) -> anyhow::Result<()> {
 #[cfg(feature = "axum")]
 mod axum_impl {
     use super::*;
+    use anyhow::Context;
     use axum::extract::State;
     use axum::response::IntoResponse;
-    use anyhow::Context;
 
     #[derive(Clone)]
     struct AppState {
@@ -272,7 +272,7 @@ mod axum_impl {
             path: parts.uri.path().to_string(),
             query: parts.uri.query().map(|s| s.to_string()),
             headers: parts.headers,
-            body: body.into(),
+            body,
             params: HashMap::new(),
         };
 
@@ -289,9 +289,8 @@ mod axum_impl {
     }
 
     fn to_axum_response(resp: Response) -> axum::response::Response {
-        let mut out = axum::response::Response::new(axum::body::boxed(axum::body::Body::from(
-            resp.body,
-        )));
+        let mut out =
+            axum::response::Response::new(axum::body::boxed(axum::body::Body::from(resp.body)));
         *out.status_mut() = resp.status;
         *out.headers_mut() = resp.headers;
         out
@@ -301,7 +300,7 @@ mod axum_impl {
 #[cfg(feature = "actix")]
 mod actix_impl {
     use super::*;
-    use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
+    use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
     use anyhow::Context;
 
     #[derive(Clone)]
@@ -416,5 +415,3 @@ mod tests {
         assert!(resp.headers.contains_key("x-powered-by"));
     }
 }
-
-

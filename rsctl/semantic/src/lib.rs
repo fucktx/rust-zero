@@ -5,5 +5,3 @@ pub mod api;
 pub fn ping() -> &'static str {
     "semantic"
 }
-
-

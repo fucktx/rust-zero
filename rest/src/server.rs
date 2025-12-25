@@ -70,7 +70,8 @@ where
     pub fn use_layer<L>(mut self, layer: L) -> Self
     where
         L: tower_layer::Layer<::axum::routing::Route> + Clone + Send + 'static,
-        L::Service: tower_service::Service<http::Request<::axum::body::Body>> + Clone + Send + 'static,
+        L::Service:
+            tower_service::Service<http::Request<::axum::body::Body>> + Clone + Send + 'static,
         <L::Service as tower_service::Service<http::Request<::axum::body::Body>>>::Response:
             ::axum::response::IntoResponse + 'static,
         <L::Service as tower_service::Service<http::Request<::axum::body::Body>>>::Error:
@@ -152,12 +153,12 @@ pub mod axum {
 #[cfg(feature = "actix")]
 pub mod actix {
     use crate::engine::Engine;
+    use actix_http::body::MessageBody;
+    use actix_http::{Request, Response};
     use actix_service::IntoServiceFactory;
     use actix_service::{Service, ServiceFactory};
     use actix_web::dev::AppConfig;
     use actix_web::{Error, HttpServer};
-    use actix_http::{Request, Response};
-    use actix_http::body::MessageBody;
     use std::io;
 
     /// 启动 actix-web 服务（使用 actix runtime）。
@@ -214,5 +215,3 @@ mod tests {
         // 不 await：仅做类型/签名编译验证
     }
 }
-
-

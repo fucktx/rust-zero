@@ -1,5 +1,6 @@
-use std::time::Duration;
 use crate::config::RestConf;
+#[cfg(feature = "axum")]
+use std::time::Duration;
 
 /// 运行时引擎：持有 RestConf 与未来可扩展的运行时资源（日志、指标、连接池等）。
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ impl Engine {
     {
         // WithTimeout：默认使用 conf.Timeout（毫秒）
         if self.conf.middlewares.timeout && self.conf.timeout > 0 {
-            let duration = std::time::Duration::from_millis(self.conf.timeout as u64);
+            let duration = Duration::from_millis(self.conf.timeout as u64);
             router = router.layer(::axum::middleware::from_fn_with_state(
                 crate::middleware::timeout::axum_timeout::state(duration),
                 crate::middleware::timeout::axum_timeout::run,

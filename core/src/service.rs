@@ -1,20 +1,17 @@
+//! 基础服务配置（与 go-zero 的 `service.ServiceConf` 对齐的占位实现）。
+
 use serde::{Deserialize, Serialize};
 
 /// 与 go-zero `ServiceConf.Mode` 对齐：`dev|test|rt|pre|pro`，默认 `pro`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Dev,
     Test,
     Rt,
     Pre,
+    #[default]
     Pro,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Self::Pro
-    }
 }
 
 /// 轻量日志配置：先对齐结构入口，字段后续可逐步细化。
@@ -78,7 +75,7 @@ pub struct ShutdownConf {
 }
 
 /// 与 go-zero `service.ServiceConf` 对齐的基础服务配置（应位于 core/service）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]
 pub struct ServiceConf {
     /// 服务名称（Go 版无默认；这里给 default 以便最小配置也能跑起来）。
@@ -100,20 +97,3 @@ pub struct ServiceConf {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shutdown: Option<ShutdownConf>,
 }
-
-impl Default for ServiceConf {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            log: LogConf::default(),
-            mode: Mode::default(),
-            metrics_url: None,
-            prometheus: None,
-            telemetry: None,
-            dev_server: None,
-            shutdown: None,
-        }
-    }
-}
-
-

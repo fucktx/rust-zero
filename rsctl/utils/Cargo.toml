@@ -2,8 +2,13 @@
 name = "utils"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "rsctl 通用工具：模板解析/安装、路径、渲染等"
 
 [dependencies]
 anyhow.workspace = true
+include_dir = "0.7"
 
 

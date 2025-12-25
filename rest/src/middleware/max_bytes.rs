@@ -14,5 +14,3 @@ pub mod axum_max_bytes {
         DefaultBodyLimit::max(max_bytes as usize)
     }
 }
-
-

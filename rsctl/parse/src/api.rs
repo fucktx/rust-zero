@@ -82,9 +82,7 @@ struct Parser;
 
 pub fn parse(input: &str) -> Result<Ast> {
     let mut pairs = Parser::parse(Rule::file, input).context("parse api dsl")?;
-    let file = pairs
-        .next()
-        .context("parse api dsl: missing file pair")?;
+    let file = pairs.next().context("parse api dsl: missing file pair")?;
 
     let mut items: Vec<Item> = Vec::new();
     let mut pending_annotations: Vec<Annotation> = Vec::new();
@@ -175,7 +173,9 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<Ast> {
 
 fn parse_annotation_stmt(pair: pest::iterators::Pair<Rule>) -> Result<Option<Annotation>> {
     let mut inner = pair.into_inner();
-    let Some(p) = inner.next() else { return Ok(None) };
+    let Some(p) = inner.next() else {
+        return Ok(None);
+    };
     if p.as_rule() != Rule::annotation {
         return Ok(None);
     }
@@ -203,12 +203,16 @@ fn parse_annotation(pair: pest::iterators::Pair<Rule>) -> Result<Annotation> {
 
 fn parse_annotation_args(pair: pest::iterators::Pair<Rule>) -> Result<AnnotationArgs> {
     let mut inner = pair.into_inner();
-    let Some(first) = inner.next() else { return Ok(AnnotationArgs::None) };
+    let Some(first) = inner.next() else {
+        return Ok(AnnotationArgs::None);
+    };
     match first.as_rule() {
         Rule::string => Ok(AnnotationArgs::Str(unquote(first.as_str()))),
         // 单值参数：@handler login / @server() / @doc foo 等
         // 这里把 bare/path/duration 统一当做字符串存起来。
-        Rule::bare | Rule::path | Rule::duration => Ok(AnnotationArgs::Str(first.as_str().to_string())),
+        Rule::bare | Rule::path | Rule::duration => {
+            Ok(AnnotationArgs::Str(first.as_str().to_string()))
+        }
         Rule::kv_list => {
             let mut kvs = Vec::new();
             for kv in first.into_inner() {
@@ -250,7 +254,7 @@ fn parse_route_stmt(pair: pest::iterators::Pair<Rule>) -> Result<Route> {
             Rule::response_part => {
                 if let Some(t) = p.into_inner().find(|x| x.as_rule() == Rule::type_ref) {
                     response = Some(t.as_str().to_string());
-            }
+                }
             }
             _ => {}
         }
@@ -347,5 +351,3 @@ service user {
         assert!(!ast.items.is_empty());
     }
 }
-
-

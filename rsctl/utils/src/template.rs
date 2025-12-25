@@ -1,20 +1,28 @@
-use std::path::PathBuf;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::ffi::OsStr;
 use std::fs;
+use std::path::PathBuf;
 use std::path::{Path, PathBuf as StdPathBuf};
 use std::process::Command;
+
+pub mod install;
 
 /// Resolve default template root directory from user's home.
 ///
 /// Lookup order:
-/// 1) `~/.rsctl/templates` (preferred)
-/// 2) `~/.rsctl`
+/// 1) `~/.rsctl/<current_version>/` (preferred; versioned install)
+/// 2) `~/.rsctl/templates` (legacy)
+/// 3) `~/.rsctl` (legacy)
 /// 3) search upwards from current dir for `templates/` (repo/workspace local)
 /// 4) `None` (caller may fallback to `templates/` by itself)
 pub fn default_template_root() -> Option<PathBuf> {
-    let home = home_dir()?;
-    let rsctl_home = home.join(".rsctl");
+    let rsctl_home = crate::path::rsctl_home_dir()?;
+    if rsctl_home.is_dir()
+        && let Some(vdir) = versioned_template_dir(&rsctl_home)
+        && vdir.is_dir()
+    {
+        return Some(vdir);
+    }
     let rsctl_templates = rsctl_home.join("templates");
     if rsctl_templates.is_dir() {
         Some(rsctl_templates)
@@ -94,7 +102,7 @@ fn clone_remote_templates(remote: &str) -> Result<StdPathBuf> {
 
 fn remote_repo_basename(remote: &str) -> Option<String> {
     let last = remote
-        .rsplit(|c| c == '/' || c == ':')
+        .rsplit(['/', ':'])
         .next()
         .and_then(|s| if s.is_empty() { None } else { Some(s) })?;
 
@@ -121,25 +129,11 @@ fn find_templates_upwards() -> Option<PathBuf> {
     None
 }
 
-fn home_dir() -> Option<PathBuf> {
-    // Unix: HOME
-    if let Some(h) = std::env::var_os("HOME") {
-        if !h.is_empty() {
-            return Some(PathBuf::from(h));
-        }
+fn versioned_template_dir(rsctl_home: &Path) -> Option<PathBuf> {
+    // Provided by CLI at runtime. Example: "1.9.2"
+    let ver = std::env::var_os("RSCTL_VERSION")?;
+    if ver.is_empty() {
+        return None;
     }
-    // Windows: USERPROFILE, or HOMEDRIVE + HOMEPATH
-    if let Some(h) = std::env::var_os("USERPROFILE") {
-        if !h.is_empty() {
-            return Some(PathBuf::from(h));
-        }
-    }
-    let drive = std::env::var_os("HOMEDRIVE");
-    let path = std::env::var_os("HOMEPATH");
-    match (drive, path) {
-        (Some(d), Some(p)) if !d.is_empty() && !p.is_empty() => Some(PathBuf::from(d).join(p)),
-        _ => None,
-    }
+    Some(rsctl_home.join(ver))
 }
-
-

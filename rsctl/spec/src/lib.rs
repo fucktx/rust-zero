@@ -8,5 +8,3 @@ pub mod api;
 pub struct Package {
     pub name: String,
 }
-
-

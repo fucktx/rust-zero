@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -18,7 +18,11 @@ impl Value {
     fn as_str(&self) -> String {
         match self {
             Value::Bool(b) => {
-                if *b { "true".into() } else { "false".into() }
+                if *b {
+                    "true".into()
+                } else {
+                    "false".into()
+                }
             }
             Value::Str(s) => s.clone(),
         }
@@ -34,11 +38,14 @@ pub struct Context {
 
 impl Context {
     pub fn new() -> Self {
-        Self { map: HashMap::new() }
+        Self {
+            map: HashMap::new(),
+        }
     }
 
     pub fn set_str(mut self, key: &str, val: impl Into<String>) -> Self {
-        self.map.insert(key.to_ascii_lowercase(), Value::Str(val.into()));
+        self.map
+            .insert(key.to_ascii_lowercase(), Value::Str(val.into()));
         self
     }
 
@@ -92,8 +99,8 @@ pub fn render(input: &str, ctx: &Context) -> Result<String> {
         i = end + 2;
 
         // Control actions
-        if action.starts_with("if ") {
-            let cond = action["if ".len()..].trim();
+        if let Some(rest) = action.strip_prefix("if ") {
+            let cond = rest.trim();
             let key = cond.strip_prefix('.').unwrap_or(cond).trim();
             let cond_val = ctx.get(key).map(|v| v.truthy()).unwrap_or(false);
             let parent_active = active;
@@ -141,5 +148,3 @@ pub fn render(input: &str, ctx: &Context) -> Result<String> {
 
     Ok(out)
 }
-
-

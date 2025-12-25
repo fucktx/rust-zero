@@ -2,6 +2,10 @@
 name = "core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "rsctl 流水线编排：Parse -> Semantic -> Spec -> Gen -> Write（对外主 API）"
 
 [dependencies]
 anyhow.workspace = true

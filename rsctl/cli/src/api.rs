@@ -44,9 +44,9 @@ pub struct RsArgs {
     /// Overwrite existing files when writing to disk (default: false).
     #[arg(short = 'o', long = "overwrite", action = clap::ArgAction::SetTrue)]
     pub overwrite: bool,
-    
+
     /// - 推荐：`--web axum`
-    #[arg(short = 'w', long = "web",  default_value = "axum")]
+    #[arg(short = 'w', long = "web", default_value = "axum")]
     pub web: String,
 }
 
@@ -67,5 +67,3 @@ pub fn run(api: Api) -> Result<()> {
     }
     Ok(())
 }
-
-

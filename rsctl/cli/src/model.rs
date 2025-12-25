@@ -77,5 +77,3 @@ pub fn run(model: Model) -> Result<()> {
     }
     Ok(())
 }
-
-

@@ -64,5 +64,3 @@ pub enum AnnotationArgs {
     Str(String),
     Map(Vec<(String, String)>),
 }
-
-

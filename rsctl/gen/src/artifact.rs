@@ -11,5 +11,3 @@ pub struct Artifact {
 pub struct Artifacts {
     pub files: Vec<Artifact>,
 }
-
-

@@ -1,7 +1,7 @@
 //! API pipeline entrypoints (orchestration layer).
 
 pub mod rs {
-    use anyhow::{anyhow, Context, Result};
+    use anyhow::{Context, Result, anyhow};
     use std::fs;
     use std::path::PathBuf;
 
@@ -39,7 +39,6 @@ pub mod rs {
         pipeline(&cfg, &web)?;
         Ok(cfg)
     }
-
 
     /// Note: currently still contains side-effects (create dir, write marker) as a proof-of-wiring.
     pub(crate) fn config(mut opts: Options, web: &str) -> Result<Config> {
@@ -112,8 +111,8 @@ pub mod rs {
             .map(|s| s.name.clone())
             .or_else(|| {
                 cfg.api_file
-            .file_stem()
-            .and_then(|s| s.to_str())
+                    .file_stem()
+                    .and_then(|s| s.to_str())
                     .map(|s| s.to_string())
             })
             .unwrap_or_else(|| "api".to_string());
@@ -185,4 +184,3 @@ pub mod rs {
         Ok(())
     }
 }
-

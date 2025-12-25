@@ -7,5 +7,3 @@ pub mod artifact;
 pub fn ping() -> &'static str {
     "gen"
 }
-
-

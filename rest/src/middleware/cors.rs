@@ -46,5 +46,3 @@ pub mod axum_cors {
         }
     }
 }
-
-

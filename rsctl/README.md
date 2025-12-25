@@ -2,6 +2,60 @@
 
 该目录是 `rsctl` 的独立 Rust workspace，用于实现“描述文件 -> 解析 -> 语义归一 -> Spec(IR) -> 代码生成 -> 写盘”的完整流水线。
 
+## 快速开始
+
+### 安装/构建 rsctl
+
+#### 方法1：直接从 Git 仓库安装（推荐）
+
+```bash
+cargo install --git https://github.com/fucktx/rust-zero --bin rsctl --force
+```
+
+#### 方法2：克隆后本地安装
+
+```bash
+git clone https://github.com/fucktx/rust-zero.git
+cd rust-zero/rsctl
+cargo install --path cli --force
+```
+
+#### 方法3：本地构建
+
+```bash
+git clone https://github.com/fucktx/rust-zero.git
+cd rust-zero/rsctl
+make build
+```
+
+### 模板管理（template）
+
+模板会安装到当前用户目录下：`~/.rsctl/<VERSION>/`（Windows 示例：`C:\Users\xiaohan\.rsctl\<VERSION>\`）。
+
+```bash
+# 初始化：安装当前版本模板（已存在则不覆盖）
+rsctl template init
+
+# 清理：只删除当前版本模板目录（支持拼写兼容：celan）
+rsctl template clean
+rsctl template celan
+
+# 更新：覆盖安装当前版本模板
+rsctl template update
+```
+
+### 生成 API 工程（axum）
+
+最常用命令（推荐加 `-o` 覆盖已有文件）：
+
+```bash
+rsctl api rs \
+  -a rsctl/test/api.api \
+  -d rsctl/test/out \
+  --web axum \
+  -o
+```
+
 ## 总览（当前目录结构）
 
 本仓库采用 **workspace 扁平组织**（不使用 `crates/` 目录）：
@@ -290,5 +344,9 @@ gen/
 - `templates/api/rs/`：Rust API（axum）模板（已迁移完成）
 - `templates/model/`：模型层模板（后续会细分 mysql/pg 等）
 - `templates/rpc/grpc/`：RPC 层模板（后续可加 thrift 等）
+
+## 许可证
+
+rsctl 随仓库一起采用 Apache-2.0，详见仓库根目录 `LICENSE`。
 
 

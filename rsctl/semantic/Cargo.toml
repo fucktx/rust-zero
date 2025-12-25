@@ -2,6 +2,10 @@
 name = "semantic"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "rsctl 语义分析层：AST -> Spec（校验、归一化、默认值）"
 
 [dependencies]
 anyhow.workspace = true

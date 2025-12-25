@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 pub fn to_spec(ast: &parse::api::Ast) -> Result<spec::api::Spec> {
     let mut services = Vec::new();
@@ -13,7 +13,11 @@ pub fn to_spec(ast: &parse::api::Ast) -> Result<spec::api::Spec> {
         }
     }
 
-    Ok(spec::api::Spec { services, routes, types })
+    Ok(spec::api::Spec {
+        services,
+        routes,
+        types,
+    })
 }
 
 fn type_to_spec(t: &parse::api::TypeDef) -> Result<spec::api::TypeDef> {
@@ -73,15 +77,9 @@ fn annotations_to_spec(src: &[parse::api::Annotation]) -> Vec<spec::api::Annotat
             name: a.name.clone(),
             args: match &a.args {
                 parse::api::AnnotationArgs::None => spec::api::AnnotationArgs::None,
-                parse::api::AnnotationArgs::Str(s) => {
-                    spec::api::AnnotationArgs::Str(s.clone())
-                }
-                parse::api::AnnotationArgs::Map(kvs) => {
-                    spec::api::AnnotationArgs::Map(kvs.clone())
-                }
+                parse::api::AnnotationArgs::Str(s) => spec::api::AnnotationArgs::Str(s.clone()),
+                parse::api::AnnotationArgs::Map(kvs) => spec::api::AnnotationArgs::Map(kvs.clone()),
             },
         })
         .collect()
 }
-
-

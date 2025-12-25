@@ -6,13 +6,13 @@
 
 #[cfg(all(feature = "axum", feature = "jwt"))]
 pub mod axum_jwt {
-    use axum::body::boxed;
     use axum::body::Body;
+    use axum::body::boxed;
     use axum::extract::State;
     use axum::http::{Request, StatusCode};
     use axum::middleware::Next;
     use axum::response::Response;
-    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+    use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
     use serde::Deserialize;
     use std::sync::Arc;
 
@@ -63,5 +63,3 @@ pub mod axum_jwt {
         resp
     }
 }
-
-

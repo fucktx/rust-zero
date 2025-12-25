@@ -1,7 +1,7 @@
 //! Model pipeline entrypoints (orchestration layer).
 
 pub mod mysql {
-    use anyhow::{anyhow, Context, Result};
+    use anyhow::{Context, Result, anyhow};
     use std::fs;
     use std::path::PathBuf;
 
@@ -52,7 +52,7 @@ pub mod mysql {
 }
 
 pub mod pg {
-    use anyhow::{anyhow, Context, Result};
+    use anyhow::{Context, Result, anyhow};
     use std::fs;
     use std::path::PathBuf;
 
@@ -101,4 +101,3 @@ pub mod pg {
         })
     }
 }
-

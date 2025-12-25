@@ -2,6 +2,10 @@
 name = "spec"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "rsctl 稳定 IR/Spec：生成器唯一依赖的数据结构定义"
 
 [dependencies]
 serde.workspace = true

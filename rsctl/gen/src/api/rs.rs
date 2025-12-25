@@ -49,8 +49,8 @@ pub mod axum {
 }
 
 pub mod shared {
-    use anyhow::{anyhow, Context, Result};
     use crate::artifact::{Artifact, Artifacts};
+    use anyhow::{Context, Result, anyhow};
     use std::path::{Path, PathBuf};
     use utils::render;
 
@@ -90,10 +90,9 @@ pub mod shared {
 
     fn find_kv<'a>(ann: &'a spec::api::Annotation, key: &str) -> Option<&'a str> {
         match &ann.args {
-            spec::api::AnnotationArgs::Map(kvs) => kvs
-                .iter()
-                .find(|(k, _)| k == key)
-                .map(|(_, v)| v.as_str()),
+            spec::api::AnnotationArgs::Map(kvs) => {
+                kvs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+            }
             _ => None,
         }
     }
@@ -106,9 +105,7 @@ pub mod shared {
     }
 
     fn route_handler_name(route: &spec::api::Route) -> Option<String> {
-        let Some(a) = find_annotation(&route.annotations, "handler") else {
-            return None;
-        };
+        let a = find_annotation(&route.annotations, "handler")?;
         match &a.args {
             spec::api::AnnotationArgs::Str(s) => Some(s.clone()),
             _ => None,
@@ -116,9 +113,7 @@ pub mod shared {
     }
 
     fn service_group_name(service: &spec::api::Service) -> Option<String> {
-        let Some(srv) = find_annotation(&service.annotations, "server") else {
-            return None;
-        };
+        let srv = find_annotation(&service.annotations, "server")?;
         find_kv(srv, "group").map(|s| s.to_string())
     }
 
@@ -128,23 +123,17 @@ pub mod shared {
     }
 
     fn service_prefix(service: &spec::api::Service) -> Option<String> {
-        let Some(srv) = find_annotation(&service.annotations, "server") else {
-            return None;
-        };
+        let srv = find_annotation(&service.annotations, "server")?;
         find_kv(srv, "prefix").map(|s| s.to_string())
     }
 
     fn service_middleware(service: &spec::api::Service) -> Option<String> {
-        let Some(srv) = find_annotation(&service.annotations, "server") else {
-            return None;
-        };
+        let srv = find_annotation(&service.annotations, "server")?;
         find_kv(srv, "middleware").map(|s| s.to_string())
     }
 
     fn service_jwt(service: &spec::api::Service) -> Option<String> {
-        let Some(srv) = find_annotation(&service.annotations, "server") else {
-            return None;
-        };
+        let srv = find_annotation(&service.annotations, "server")?;
         find_kv(srv, "jwt").map(|s| s.to_string())
     }
 
@@ -245,15 +234,15 @@ pub mod shared {
 
         if is_string {
             let mut parts = Vec::new();
-            if let Some(n) = min_v {
-                if n > 0 {
-                    parts.push(format!("min = {n}"));
-                }
+            if let Some(n) = min_v
+                && n > 0
+            {
+                parts.push(format!("min = {n}"));
             }
-            if let Some(n) = max_v {
-                if n > 0 {
-                    parts.push(format!("max = {n}"));
-                }
+            if let Some(n) = max_v
+                && n > 0
+            {
+                parts.push(format!("max = {n}"));
             }
             if !parts.is_empty() {
                 out.push(format!("#[validate(length({}))]", parts.join(", ")));
@@ -331,16 +320,16 @@ pub mod shared {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Style {
-        RustZeroSnake,
-        RustZeroLowerCamel,
-        RustZeroUpperCamel,
+        Snake,
+        LowerCamel,
+        UpperCamel,
     }
 
     fn parse_style(style: &str) -> Result<Style> {
         match style {
-            "rust_zero" => Ok(Style::RustZeroSnake),
-            "rustZero" => Ok(Style::RustZeroLowerCamel),
-            "RustZero" => Ok(Style::RustZeroUpperCamel),
+            "rust_zero" => Ok(Style::Snake),
+            "rustZero" => Ok(Style::LowerCamel),
+            "RustZero" => Ok(Style::UpperCamel),
             other => Err(anyhow!(
                 "unsupported style: {other} (expected rust_zero|rustZero|RustZero)"
             )),
@@ -358,9 +347,9 @@ pub mod shared {
 
     fn group_file_base(group_snake: &str, style: Style) -> String {
         match style {
-            Style::RustZeroSnake => group_snake.to_string(),
-            Style::RustZeroLowerCamel => lower_camel_from_snake(group_snake),
-            Style::RustZeroUpperCamel => pascal(group_snake),
+            Style::Snake => group_snake.to_string(),
+            Style::LowerCamel => lower_camel_from_snake(group_snake),
+            Style::UpperCamel => pascal(group_snake),
         }
     }
 
@@ -370,9 +359,7 @@ pub mod shared {
         if module == file_base {
             format!("pub mod {module};\n")
         } else {
-            format!(
-                "#[path = \"{parent_dir}/{file_base}.rs\"]\npub mod {module};\n"
-            )
+            format!("#[path = \"{parent_dir}/{file_base}.rs\"]\npub mod {module};\n")
         }
     }
 
@@ -482,7 +469,9 @@ pub mod shared {
         // validator（按 type 字段 tag 是否包含 validate:"..." 决定）
         let use_validator = spec.types.iter().any(|t| {
             t.fields.iter().any(|f| {
-                f.tag.as_ref().is_some_and(|tag| tag.contains("validate:\""))
+                f.tag
+                    .as_ref()
+                    .is_some_and(|tag| tag.contains("validate:\""))
             })
         });
 
@@ -676,9 +665,15 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
 
             let score_of = |prefix: &str, mw: &Option<String>, jwt: &Option<String>| -> i32 {
                 let mut s = 0;
-                if jwt.is_some() { s += 100; }
-                if mw.is_some() { s += 10; }
-                if !prefix.trim().is_empty() { s += 1; }
+                if jwt.is_some() {
+                    s += 100;
+                }
+                if mw.is_some() {
+                    s += 10;
+                }
+                if !prefix.trim().is_empty() {
+                    s += 1;
+                }
                 s
             };
 
@@ -689,7 +684,9 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                 let score = score_of(&prefix, &mw, &jwt);
 
                 for r in &service.routes {
-                    let Some(_h) = route_handler_name(r) else { continue };
+                    let Some(_h) = route_handler_name(r) else {
+                        continue;
+                    };
                     let method = match r.method {
                         spec::api::HttpMethod::Get => "GET",
                         spec::api::HttpMethod::Post => "POST",
@@ -702,10 +699,22 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
 
                     match winners.get(&route_key) {
                         None => {
-                            winners.insert(route_key, Winner { score, service_idx: idx });
+                            winners.insert(
+                                route_key,
+                                Winner {
+                                    score,
+                                    service_idx: idx,
+                                },
+                            );
                         }
                         Some(prev) if score > prev.score => {
-                            winners.insert(route_key, Winner { score, service_idx: idx });
+                            winners.insert(
+                                route_key,
+                                Winner {
+                                    score,
+                                    service_idx: idx,
+                                },
+                            );
                         }
                         Some(prev) if score == prev.score && prev.service_idx != idx => {
                             return Err(anyhow::anyhow!(
@@ -720,8 +729,8 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
 
             for (idx, service) in spec.services.iter().enumerate() {
                 let group = effective_group(service);
-            let group = snake(&group);
-            let prefix = service_prefix(service).unwrap_or_default();
+                let group = snake(&group);
+                let prefix = service_prefix(service).unwrap_or_default();
                 let mw = service_middleware(service);
                 let jwt = service_jwt(service);
 
@@ -729,10 +738,12 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                 routes_rs.push_str("        [\n");
 
                 let mut any = false;
-            for r in &service.routes {
-                let Some(h) = route_handler_name(r) else { continue };
-                let h = snake(&h);
-                let method = match r.method {
+                for r in &service.routes {
+                    let Some(h) = route_handler_name(r) else {
+                        continue;
+                    };
+                    let h = snake(&h);
+                    let method = match r.method {
                         spec::api::HttpMethod::Get => "GET",
                         spec::api::HttpMethod::Post => "POST",
                         spec::api::HttpMethod::Put => "PUT",
@@ -742,10 +753,12 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
 
                     let full_path = join_paths(&prefix, &r.path);
                     let route_key = format!("{method} {full_path}");
-                    let Some(w) = winners.get(&route_key) else { continue };
+                    let Some(w) = winners.get(&route_key) else {
+                        continue;
+                    };
                     if w.service_idx != idx {
-                    continue;
-                }
+                        continue;
+                    }
 
                     any = true;
                     routes_rs.push_str(&format!(
@@ -769,7 +782,7 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                     routes_rs.push_str(&format!(
                         "        // @server(jwt: {jwt_name})\n        rest::WithJwt(svc_ctx.config.{jwt_field}.access_secret.clone()),\n"
                 ));
-            }
+                }
                 // `rest::add_routes!` 产出的 Router 默认是 `Router<()>`，这里用 `.with_state::<Arc<ServiceContext>>(())`
                 // 做“类型切换”，让它能 merge 到 `Router<Arc<ServiceContext>>` 中（真正的 state 值由上层 Server 注入）。
                 routes_rs.push_str("    ).with_state::<Arc<ServiceContext>>(()) );\n");
@@ -781,8 +794,8 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
             routes_rs.push_str("    app\n");
             routes_rs.push_str("}\n");
 
-        files.push(Artifact {
-            rel_path: "handler/routes.rs".into(),
+            files.push(Artifact {
+                rel_path: "handler/routes.rs".into(),
                 content: routes_rs,
             });
         }
@@ -803,7 +816,7 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                 for m in &mws {
                     root.push_str(&format!("pub mod {m};\n"));
                 }
-        files.push(Artifact {
+                files.push(Artifact {
                     rel_path: "middleware.rs".into(),
                     content: root,
                 });
@@ -830,7 +843,7 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
 "#,
                             m = m
                         ),
-        });
+                    });
                 }
             }
         }
@@ -946,7 +959,9 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                                 continue;
                             }
                             for r in &service.routes {
-                                let Some(hn) = route_handler_name(r) else { continue };
+                                let Some(hn) = route_handler_name(r) else {
+                                    continue;
+                                };
                                 if snake(&hn) != *h {
                                     continue;
                                 }
@@ -954,10 +969,10 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                                 resp = r.response.clone();
                                 http_method = Some(r.method.clone());
                                 // doc annotation
-                                if let Some(a) = r.annotations.iter().find(|a| a.name == "doc") {
-                                    if let spec::api::AnnotationArgs::Str(s) = &a.args {
-                                        doc = Some(s.clone());
-                                    }
+                                if let Some(a) = r.annotations.iter().find(|a| a.name == "doc")
+                                    && let spec::api::AnnotationArgs::Str(s) = &a.args
+                                {
+                                    doc = Some(s.clone());
                                 }
                                 break 'outer;
                             }
@@ -982,35 +997,35 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                         // extractor kind + 是否需要 validate
                         let mut extractor = "Json".to_string();
                         let mut needs_validate = false;
-                        if let Some(req_name) = req.as_deref() {
-                            if let Some(td) = type_map.get(req_name) {
-                                let mut has_path = false;
-                                let mut has_form = false;
-                                let mut has_json = false;
-                                for f in &td.fields {
-                                    let Some(tag) = &f.tag else { continue };
-                                    let m = tag_kv_map(tag);
-                                    if m.contains_key("path") {
-                                        has_path = true;
-                                    }
-                                    if m.contains_key("form") {
-                                        has_form = true;
-                                    }
-                                    if m.contains_key("json") {
-                                        has_json = true;
-                                    }
-                                    if m.contains_key("validate") {
-                                        needs_validate = true;
-                                    }
+                        if let Some(req_name) = req.as_deref()
+                            && let Some(td) = type_map.get(req_name)
+                        {
+                            let mut has_path = false;
+                            let mut has_form = false;
+                            let mut has_json = false;
+                            for f in &td.fields {
+                                let Some(tag) = &f.tag else { continue };
+                                let m = tag_kv_map(tag);
+                                if m.contains_key("path") {
+                                    has_path = true;
                                 }
-                                // 简化规则：path-only -> Path；form-only -> Form；否则 Json。
-                                if has_path && !has_form && !has_json {
-                                    extractor = "Path".into();
-                                } else if has_form && !has_path && !has_json {
-                                    extractor = "Form".into();
-                                } else {
-                                    extractor = "Json".into();
+                                if m.contains_key("form") {
+                                    has_form = true;
                                 }
+                                if m.contains_key("json") {
+                                    has_json = true;
+                                }
+                                if m.contains_key("validate") {
+                                    needs_validate = true;
+                                }
+                            }
+                            // 简化规则：path-only -> Path；form-only -> Form；否则 Json。
+                            if has_path && !has_form && !has_json {
+                                extractor = "Path".into();
+                            } else if has_form && !has_path && !has_json {
+                                extractor = "Form".into();
+                            } else {
+                                extractor = "Json".into();
                             }
                         }
 
@@ -1080,7 +1095,9 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                                 continue;
                             }
                             for r in &service.routes {
-                                let Some(hn) = route_handler_name(r) else { continue };
+                                let Some(hn) = route_handler_name(r) else {
+                                    continue;
+                                };
                                 if snake(&hn) != *h {
                                     continue;
                                 }
@@ -1237,5 +1254,3 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
         Ok(Artifacts { files })
     }
 }
-
-

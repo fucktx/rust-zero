@@ -2,6 +2,10 @@
 name = "rest"
 version = "0.1.0"
 edition = "2024"
+description = "rust-zero Web 适配层/中间件/路由 DSL（支持 axum/actix 等）"
+license = "Apache-2.0"
+repository = "https://github.com/fucktx/rust-zero"
+readme = "../README.md"
 
 [features]
 default = []

@@ -49,7 +49,9 @@ macro_rules! router {
 #[macro_export]
 macro_rules! router {
     ($($tt:tt)*) => {{
-        compile_error!("rest::router!: please enable one feature on the `rest` crate: `axum` or `actix`");
+        compile_error!(
+            "rest::router!: please enable one feature on the `rest` crate: `axum` or `actix`"
+        );
     }};
 }
 
@@ -408,5 +410,3 @@ macro_rules! __actix_apply_any {
         $crate::__actix_apply_any!(app, $($rest)*)
     }};
 }
-
-

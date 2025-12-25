@@ -12,10 +12,7 @@ pub async fn run(engine: crate::engine::Engine, app: axum::Router) -> anyhow::Re
 }
 
 #[cfg(feature = "actix")]
-pub async fn run<F, I, S, B>(
-    engine: crate::engine::Engine,
-    factory: F,
-) -> std::io::Result<()>
+pub async fn run<F, I, S, B>(engine: crate::engine::Engine, factory: F) -> std::io::Result<()>
 where
     F: Fn() -> I + Send + Clone + 'static,
     I: actix_service::IntoServiceFactory<S, actix_http::Request>,
@@ -30,5 +27,3 @@ where
 {
     crate::server::actix::run(engine, factory).await
 }
-
-

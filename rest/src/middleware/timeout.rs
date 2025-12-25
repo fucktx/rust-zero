@@ -4,7 +4,7 @@
 
 #[cfg(feature = "axum")]
 pub mod axum_timeout {
-    use axum::body::{boxed, Body};
+    use axum::body::{Body, boxed};
     use axum::http::{Request, StatusCode};
     use axum::middleware::Next;
     use axum::response::Response;
@@ -31,5 +31,3 @@ pub mod axum_timeout {
         }
     }
 }
-
-

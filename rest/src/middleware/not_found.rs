@@ -6,7 +6,7 @@
 pub mod axum_not_found {
     pub fn apply<R>(
         router: axum::Router<R>,
-        handler: impl axum::handler::Handler<(), R> + Clone + Send + 'static,
+        handler: impl axum::handler::Handler<(), R> + 'static,
     ) -> axum::Router<R>
     where
         R: Clone + Send + Sync + 'static,
@@ -14,5 +14,3 @@ pub mod axum_not_found {
         router.fallback(handler)
     }
 }
-
-

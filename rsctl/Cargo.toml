@@ -13,6 +13,10 @@ members = [
 [workspace.package]
 edition = "2024"
 version = "0.1.0"
+license = "Apache-2.0"
+repository = "https://github.com/fucktx/rust-zero"
+description = "rsctl：描述文件 -> 解析 -> 语义归一 -> Spec(IR) -> 代码生成 -> 写盘 的代码生成器工作区"
+readme = "README.md"
 
 [workspace.dependencies]
 anyhow = "1"
