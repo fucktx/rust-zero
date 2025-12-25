@@ -97,7 +97,7 @@ cargo run
 
 ## templates（外置模板）
 
-模板目前已按分层归档（与你的目标一致：api/model/rpc）：
+模板目前已按分层归档：
 
 - `templates/api/rs/`：Rust API（axum）模板（已迁移完成）
 - `templates/model/`：模型层模板（后续会细分 mysql/pg 等）
