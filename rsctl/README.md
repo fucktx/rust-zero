@@ -9,13 +9,13 @@
 #### 方法1：直接从 Git 仓库安装（推荐）
 
 ```bash
-cargo install --git https://github.com/fucktx/rust-zero --bin rsctl --force
+cargo install --git https://github.com/fucktx/rust-zero --branch api --bin rsctl --force
 ```
 
 #### 方法2：克隆后本地安装
 
 ```bash
-git clone https://github.com/fucktx/rust-zero.git
+git clone -b api https://github.com/fucktx/rust-zero.git
 cd rust-zero/rsctl
 cargo install --path cli --force
 ```
@@ -23,10 +23,12 @@ cargo install --path cli --force
 #### 方法3：本地构建
 
 ```bash
-git clone https://github.com/fucktx/rust-zero.git
+git clone -b api https://github.com/fucktx/rust-zero.git
 cd rust-zero/rsctl
 make build
 ```
+
+构建产物位于 `rsctl/dist/rsctl`（Windows 为 `rsctl/dist/rsctl.exe`）。你可以手动加入 PATH，或直接使用该文件。
 
 ### 模板管理（template）
 
@@ -44,298 +46,55 @@ rsctl template celan
 rsctl template update
 ```
 
-### 生成 API 工程（axum）
+### rsctl：API 生成使用说明（Rust）
 
-最常用命令（推荐加 `-o` 覆盖已有文件）：
+#### 1) 查看 rsctl 版本
+
+```bash
+rsctl --version
+# 或
+rsctl -v
+```
+
+#### 2) 生成 API 工程（示例：axum）
+
+最常用命令（建议加 `-o` 覆盖已有文件）：
 
 ```bash
 rsctl api rs \
-  -a rsctl/test/api.api \
-  -d rsctl/test/out \
+  -a rsctl/tests/api.api \
+  -d rsctl/tests/out \
   --web axum \
   -o
 ```
 
-## 总览（当前目录结构）
+参数说明：
+- `-a, --api`：`.api` 描述文件路径
+- `-d, --dir`：输出目录
+- `-w, --web`：目标框架（当前支持 `axum` / `actix`，默认 `axum`）
+- `-o, --overwrite`：覆盖输出目录中已有文件
+- `-m, --merge`：同组 handler 是否合并到一个文件（默认 `true`）
+- `-s, --style`：生成的 `.rs` 文件命名风格：`rust_zero` / `rustZero` / `RustZero`
+- `-r, --remote`：模板来源（可传本地目录或 git/http URL）
 
-本仓库采用 **workspace 扁平组织**（不使用 `crates/` 目录）：
+提示：默认模板根会优先使用 `~/.rsctl/<当前 rsctl 版本>/`；建议首次使用先执行一次 `rsctl template update`。
 
-```text
-rsctl/
-  Cargo.toml                       # [workspace] + [workspace.dependencies]
-  README.md
+#### 3) 运行生成结果
 
-  cli/                             # 二进制：命令行入口（薄层）
-  core/                            # 编排：Parse -> Semantic -> Gen -> Write（对外主 API）
-  spec/                            # 稳定 IR：统一 Spec（最重要的稳定层）
-  parse/                           # 输入解析：文本/文件 -> AST/中间结构
-  semantic/                        # 语义分析：AST -> Spec（归一化/校验/默认值）
-  gen/                             # 生成：Spec -> Artifacts（待写文件集合）
-
-  templates/                       # 外置模板根（可被 CLI 的 --templates 覆盖）
-    api/
-      rs/
-    model/
-    rpc/
-  examples/                        # 示例输入/示例工程（可选）
-  docs/                            # 设计文档/规范（可选）
+```bash
+cd rsctl/tests/out
+cargo run
 ```
 
-## 各 crate 职责（为什么要这样分层）
+如果端口被占用，会看到类似 `failed to bind ... Address already in use` 的提示；修改 `rsctl/tests/out/etc/config.yaml` 的 `Port` 即可。
 
-- `cli`：命令行入口（薄层）
-- `core`：流水线编排（对外主 API）
-- `spec`：稳定的 IR/Spec 定义
-- `parse`：输入解析（api/model/rpc）
-- `semantic`：语义分析与归一化（parse -> spec）
-- `gen`：代码生成（spec -> artifacts -> write）
+#### 4) 生成结果如何接入本仓库的 `rest`（零运行时抽象）
 
-它们的调用关系（理想流水线）：
+当前生成的 `handler/routes.rs` 会使用本仓库 `rest` crate 提供的 `rest::add_routes!`/路由 DSL 来构建路由：
+- 写法统一（router/group/middleware 等 meta）
+- 编译期展开为原生框架调用（axum/actix），避免 `dyn/BoxFuture` 等运行时抽象成本
 
-```text
-输入文件/文本
-  -> parse（解析）
-  -> semantic（语义检查 + 归一化）
-  -> spec（稳定 IR）
-  -> gen（生成 artifacts）
-  -> write（落盘策略：覆盖/跳过/合并）
-```
-
-## “完整形态”目录结构参考（带注释）
-
-下面这份结构是你最初贴出来的“全链路 + 分层职责”的 **落盘版**（已按本仓库的实际约束做了两点调整：**扁平 crates**、**crate 不加 `rsctl-` 前缀**）。
-
-```text
-rsctl/                                              # workspace 根目录
-  Cargo.toml                                        # [workspace]：成员管理/统一依赖版本
-  README.md                                         # 总览说明/快速开始/目录解释（就是本文件）
-
-  cli/                                              # 二进制 crate：命令行入口（最终产物）
-    Cargo.toml
-    src/
-      main.rs                                       # 入口：解析参数 -> 调用 core
-      cli.rs                                        # clap/子命令定义与分发（薄层）
-      cli/
-        commands/                                   # api/model/rpc 等子命令（gen/validate/format…）
-        args/                                       # 参数结构/校验/配置加载
-
-  core/                                             # 核心库 crate：流水线编排 + 公共能力（对外主 API）
-    Cargo.toml
-    src/
-      lib.rs                                        # 对外接口：run_xxx/pipeline
-      pipeline.rs                                   # Parse->Semantic->Spec->Gen->Write 编排（入口/调度）
-      pipeline/
-        api.rs                                      # api 流水线编排（可选：按域拆分）
-        model.rs
-        rpc.rs
-      common.rs                                     # 通用：error/naming/fs/config/logging 等
-
-  spec/                                             # IR/Spec crate：统一代码生成模型（稳定层）
-    Cargo.toml
-    src/
-      lib.rs
-      api.rs                                        # API Spec 根模块
-      api/
-        types.rs                                    # 类型系统：Request/Response/DTO/Enum…
-        routes.rs                                   # 路由：service/route/method/path…
-      model.rs                                      # Model Spec 根模块
-      model/
-        schema.rs                                   # 表/字段/索引/关系等
-        types.rs                                    # 统一类型系统（吸收不同数据库的类型差异）
-      rpc.rs                                        # RPC Spec 根模块
-      rpc/
-        service.rs                                  # service/method 定义
-        message.rs                                  # message/field 定义
-
-  parse/                                            # Parse crate：输入解析（文本/文件 -> AST/中间结构）
-    Cargo.toml
-    src/
-      lib.rs
-      api.rs                                        # API 输入解析入口（DSL/OpenAPI 等）
-      api/
-        dsl.rs                                      # 自定义 .api DSL 解析
-        openapi.rs                                  # OpenAPI 输入解析
-      model.rs                                      # Model 输入解析入口（DDL/Schema/Introspect…）
-      model/
-        mysql.rs                                    # MySQL 方言解析/导入点
-        pg.rs                                       # PostgreSQL 方言解析/导入点
-      rpc.rs                                        # RPC 输入解析入口（proto/thrift 等）
-      rpc/
-        proto.rs
-        thrift.rs
-
-  semantic/                                         # Semantic crate：语义分析与归一化（AST -> Spec）
-    Cargo.toml
-    src/
-      lib.rs
-      api.rs                                        # API 语义检查/默认值/命名归一/引用解析
-      model.rs                                      # Model 语义检查/类型归一/约束归一（吸收大部分方言差异）
-      rpc.rs                                        # RPC 语义检查/引用解析/包名归一等
-
-  gen/                                              # Gen crate：生成层（Spec -> Artifacts/待写文件集合）
-    Cargo.toml
-    src/
-      lib.rs
-      api.rs                                        # API 生成器集合（领域优先；语言/框架放更深层）
-      api/
-        rs_axum.rs                                  # Rust/Axum 生成器（示例）
-        go_zero.rs                                  # Go/go-zero 风格生成器（预留）
-      model.rs                                      # Model 生成器集合
-      model/
-        mysql.rs                                    # 例如 sqlx/gorm/DDL 等输出策略
-        pg.rs
-      rpc.rs                                        # RPC 生成器集合
-      rpc/
-        grpc.rs
-        thrift.rs
-      template.rs                                   # 模板渲染封装（helpers/filters/loader）
-      write.rs                                      # 写文件与增量更新策略（覆盖/跳过/合并/标记块）
-      write/
-        plan.rs                                     # 变更计划（新增/更新/删除/差异摘要）
-        strategy.rs                                 # overwrite/merge/skip 等策略
-
-  templates/                                        # 外置模板（可选；也可迁入 gen 内并内嵌）
-    api/                                            # API 模板根
-      rs/                                           # Rust API 模板（当前已有）
-      go/                                           # Go API 模板（预留）
-    model/                                          # Model 模板根（后续细分 mysql/pg/redis）
-    rpc/                                            # RPC 模板根
-      grpc/
-      thrift/
-
-  examples/                                         # 示例输入/示例工程（可选）
-  docs/                                             # 设计文档/规范/模板变量说明（可选）
-```
-
-## 规划的细化目录（后续按功能补齐）
-
-下面是“推荐的内部细分结构”（你下次回来能快速定位代码应放在哪里）。注意：这些子目录未必现在就全部存在，按实现逐步补齐即可。
-
-### `cli/`（命令行：薄层）
-
-- **目标**：只做参数解析/校验/分发，不承载业务逻辑；业务逻辑由 `core` 统一编排。
-- **建议结构**：
-
-```text
-cli/
-  Cargo.toml
-  src/
-    main.rs                        # 入口：解析参数 -> 调用 core
-    cli.rs                         # 顶层命令路由（clap）
-    cli/
-      commands/                    # api/model/rpc 等子命令
-      args/                        # 参数结构/校验/配置加载
-```
-
-### `core/`（流水线编排：对外主 API）
-
-- **目标**：把各阶段串起来（Parse -> Semantic -> Spec -> Gen -> Write），并支持“只跑到某个阶段”便于调试。
-- **建议结构**：
-
-```text
-core/
-  Cargo.toml
-  src/
-    lib.rs                         # 对外接口：run_xxx/pipeline
-    pipeline.rs                    # 分阶段执行编排
-    pipeline/
-      api.rs
-      model.rs
-      rpc.rs
-    common.rs                      # error/naming/path/fs/config/logging 等（如需也可下沉到 spec）
-```
-
-### `spec/`（稳定 IR：统一生成模型）
-
-- **目标**：生成器唯一依赖的“稳定数据结构”。新增输入方言/生成目标时，尽量只改 `parse/semantic/gen`，避免频繁动 `spec`。
-- **建议结构**：
-
-```text
-spec/
-  Cargo.toml
-  src/
-    lib.rs
-    api.rs
-    api/
-      types.rs
-      routes.rs
-    model.rs
-    model/
-      schema.rs                    # 表/字段/索引/关系等
-      types.rs                     # 统一类型系统（i32/string/datetime/json…）
-    rpc.rs
-    rpc/
-      service.rs
-      message.rs
-```
-
-### `parse/`（输入解析：文件/文本 -> AST/中间结构）
-
-- **目标**：支持多输入格式/方言。方言差异尽量在 `semantic` 吸收，`parse` 只做“能读出来”。
-- **建议结构**：
-
-```text
-parse/
-  Cargo.toml
-  src/
-    lib.rs
-    api.rs                         # .api DSL / OpenAPI 等入口
-    api/
-      dsl.rs
-      openapi.rs
-    model.rs                       # ddl/反射/连接数据库导出（可选）
-    model/
-      mysql.rs
-      pg.rs
-    rpc.rs                         # proto/thrift 等入口
-    rpc/
-      proto.rs
-      thrift.rs
-```
-
-### `semantic/`（语义分析：AST -> Spec）
-
-- **目标**：默认值、命名归一、引用解析、类型归一、跨文件/跨模块校验等；把“方言差异”收敛成统一 Spec。
-- **建议结构**：
-
-```text
-semantic/
-  Cargo.toml
-  src/
-    lib.rs
-    api.rs
-    model.rs
-    rpc.rs
-```
-
-### `gen/`（生成：Spec -> Artifacts -> Write）
-
-- **目标**：按领域拆生成器（api/model/rpc），语言/框架/协议放更深层；写盘策略独立出来。
-- **建议结构**：
-
-```text
-gen/
-  Cargo.toml
-  src/
-    lib.rs
-    api.rs
-    api/
-      rs_axum.rs                   # Rust Axum 风格
-      go_zero.rs                   # Go go-zero 风格
-    model.rs
-    model/
-      mysql.rs
-      pg.rs
-    rpc.rs
-    rpc/
-      grpc.rs
-      thrift.rs
-    template.rs                    # 模板渲染封装（helpers/filters/loader）
-    write.rs                       # 写出策略入口（覆盖/跳过/合并/标记块）
-    write/
-      plan.rs                      # 变更计划（diff/新增/更新）
-      strategy.rs                  # overwrite/merge/skip
-```
+默认生成（`--web axum`）会在生成工程的 `Cargo.toml` 里将 `rest` 依赖指向本仓库的 `rest` crate，并启用 `features = ["axum"]`。
 
 ## templates（外置模板）
 

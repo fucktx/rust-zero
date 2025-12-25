@@ -13,7 +13,7 @@ pub enum Template {
     /// 初始化：安装当前版本模板到用户目录（~/.rsctl/<version>/）
     Init,
     /// 清理：删除当前版本的模板目录（只删 ~/.rsctl/<version>/）
-    #[command(aliases = ["clean", "celan"])]
+    #[command(alias = "celan")]
     Clean,
     /// 更新：覆盖安装当前版本的所有模板（~/.rsctl/<version>/）
     Update,

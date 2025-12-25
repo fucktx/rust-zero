@@ -8,4 +8,5 @@ rsctl/.cargo
 rsctl/.tmp
 rsctl/dist
 rsctl/target
-rsctl/test
+rsctl/tests/out
+rsctl/utils/tests

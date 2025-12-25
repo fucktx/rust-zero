@@ -80,6 +80,21 @@ pub mod shared {
         out
     }
 
+    fn find_monorepo_root(out_dir: &Path) -> Option<PathBuf> {
+        // `out_dir` 可能是相对路径（如 `tests/out`），且生成时目录未必已存在；
+        // 因此用当前工作目录拼成一个可向上遍历的绝对/半绝对路径。
+        let mut dir = std::env::current_dir().ok()?.join(out_dir);
+        loop {
+            if dir.join("rest").join("Cargo.toml").is_file() {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+        None
+    }
+
     fn snake(s: &str) -> String {
         s.trim().to_ascii_lowercase()
     }
@@ -263,6 +278,123 @@ pub mod shared {
         out
     }
 
+    /// 将渲染后的 goctl `context.tpl`（Go 代码风格）转换为 Rust 的 `ServiceContext`。
+    ///
+    /// 约束：
+    /// - 模板文件尽量保持 goctl 原样（变量名/结构不动）；
+    /// - 生成器侧仅把其中的“语义信息”（config 类型 + middleware 字段/赋值）映射到 Rust；
+    /// - `package/import` 段落不会进入输出。
+    fn render_goctl_context_to_rust(rendered: &str) -> Result<String> {
+        let mut config_ty: Option<String> = None;
+        let mut middleware_fields: Vec<String> = Vec::new();
+        let mut middleware_assign: Vec<String> = Vec::new();
+
+        // 解析 struct 区块中的字段（我们只关心 Config + middleware 占位）。
+        let mut in_struct = false;
+        for raw in rendered.lines() {
+            let line = raw.trim();
+            if line.starts_with("type ServiceContext struct") {
+                in_struct = true;
+                continue;
+            }
+            if in_struct {
+                if line == "}" {
+                    in_struct = false;
+                    continue;
+                }
+                if line.is_empty() {
+                    continue;
+                }
+                // Go 风格：`Config <type>`
+                if let Some(rest) = line.strip_prefix("Config ") {
+                    let ty = rest.trim();
+                    if !ty.is_empty() {
+                        config_ty = Some(ty.to_string());
+                    }
+                    continue;
+                }
+                // 其余视为 middleware 字段（允许模板直接塞 Rust 片段）。
+                middleware_fields.push(raw.to_string());
+            }
+        }
+
+        // 解析 NewServiceContext 的 struct literal 区块里的赋值。
+        // Go 风格：
+        // return &ServiceContext{
+        //     Config: c,
+        //     {{.middlewareAssignment}}
+        // }
+        let mut in_literal = false;
+        for raw in rendered.lines() {
+            let line = raw.trim();
+            if line.starts_with("return &ServiceContext{") {
+                in_literal = true;
+                continue;
+            }
+            if in_literal {
+                if line == "}" {
+                    in_literal = false;
+                    continue;
+                }
+                if line.is_empty() {
+                    continue;
+                }
+                if line.starts_with("Config:") {
+                    continue;
+                }
+                middleware_assign.push(raw.to_string());
+            }
+        }
+
+        let config_ty = config_ty.unwrap_or_else(|| "crate::config::Config".to_string());
+        let (config_use, config_ty) = if config_ty == "crate::config::Config" {
+            ("use crate::config::Config;\n\n", "Config".to_string())
+        } else {
+            ("", config_ty)
+        };
+
+        // 输出 Rust
+        let mut out = String::new();
+        out.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
+        out.push_str("// rsctl 0.01\n\n");
+        out.push_str(config_use);
+        out.push_str(&format!(
+            "pub struct ServiceContext {{\n    pub config: {config_ty},\n"
+        ));
+        for l in middleware_fields {
+            if l.trim().is_empty() {
+                continue;
+            }
+            out.push_str("    ");
+            out.push_str(l.trim());
+            if !l.trim().ends_with(',') {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("}\n\n");
+        out.push_str("impl ServiceContext {\n");
+        out.push_str(&format!("    pub fn new(config: {config_ty}) -> Self {{\n"));
+        out.push_str("        Self {\n");
+        out.push_str("            config,\n");
+        for l in middleware_assign {
+            let t = l.trim();
+            if t.is_empty() {
+                continue;
+            }
+            out.push_str("            ");
+            out.push_str(t);
+            if !t.ends_with(',') {
+                out.push(',');
+            }
+            out.push('\n');
+        }
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+        out.push_str("}\n");
+        Ok(out)
+    }
+
     fn join_paths(prefix: &str, path: &str) -> String {
         let pfx = prefix.trim_end_matches('/');
         let mut p = path.to_string();
@@ -278,11 +410,8 @@ pub mod shared {
         format!("{pfx}{p}")
     }
 
-    fn template_dir(template_root: &Path, framework: &str) -> PathBuf {
-        let fw = template_root.join("api").join("rs").join(framework);
-        if fw.is_dir() {
-            return fw;
-        }
+    fn template_dir(template_root: &Path) -> PathBuf {
+        // 模板目录固定为 `templates/api/rs/`（不按框架分目录）。
         template_root.join("api").join("rs")
     }
 
@@ -372,15 +501,16 @@ pub mod shared {
         out_dir: &Path,
         template_root: &Path,
     ) -> Result<Artifacts> {
-        // Template root resolution:
-        // Prefer `<template_root>/api/rs/<framework>/`, fallback to `<template_root>/api/rs/`.
-        let tmpl_dir = template_dir(template_root, framework);
-        let _ = must_exist(&tmpl_dir, "main.tpl")?;
-        let _ = must_exist(&tmpl_dir, "config.tpl")?;
-        let _ = must_exist(&tmpl_dir, "svc.tpl")?;
-        let _ = must_exist(&tmpl_dir, "types.tpl")?;
-        let _ = must_exist(&tmpl_dir, "handler.tpl")?;
-        let _ = must_exist(&tmpl_dir, "logic.tpl")?;
+        // 模板目录固定为 `<template_root>/api/rs/`（不按框架分目录）。
+        //
+        // NOTE:
+        // - 模板保持 goctl 的变量命名，以便未来直接替换为 goctl 官方模板。
+        // - 框架差异在代码层（axum/actix）处理。
+        let tmpl_dir = template_dir(template_root);
+        // 只依赖少量“非 Rust 源码”的模板文件：
+        // - `etc.tpl`: config.yaml 的最小模板
+        // - `context.tpl`: 为了保留 goctl 变量命名，但生成器侧会转换为 Rust `svc.rs`
+        let _ = must_exist(&tmpl_dir, "context.tpl")?;
         let _ = must_exist(&tmpl_dir, "etc.tpl")?;
 
         use std::collections::BTreeMap;
@@ -429,25 +559,24 @@ pub mod shared {
             .set_str("middleware", "")
             .set_str("middlewareAssignment", "");
 
-        let main_tpl = read_tpl(&tmpl_dir, "main.tpl")?;
-        let config_tpl = read_tpl(&tmpl_dir, "config.tpl")?;
-        let svc_tpl = read_tpl(&tmpl_dir, "svc.tpl")?;
-        let types_tpl = read_tpl(&tmpl_dir, "types.tpl")?;
-        let handler_tpl = read_tpl(&tmpl_dir, "handler.tpl")?;
-        let logic_tpl = read_tpl(&tmpl_dir, "logic.tpl")?;
+        let context_tpl = read_tpl(&tmpl_dir, "context.tpl")?;
         let etc_tpl = read_tpl(&tmpl_dir, "etc.tpl")?;
 
         // Project root
         // NOTE:
         // - 生成的工程默认依赖当前仓库内的 `rest` crate（用于 `rest::router!` DSL）。
-        // - 依赖路径通过 `template_root` 推导出 monorepo 根，再计算相对路径，保证 rsctl/test/out 默认可用。
-        let monorepo_root = template_root
-            .parent()
-            .and_then(|p| p.parent())
-            .ok_or_else(|| anyhow!("invalid template_root: {}", template_root.display()))?;
+        // - `template_root` 可能来自 `~/.rsctl/<version>/`（用户安装目录），因此不能再用它推导 monorepo 根。
+        // - 这里改为从 `out_dir` 向上查找 `rest/Cargo.toml` 来定位 monorepo 根（更稳）。
+        let monorepo_root = find_monorepo_root(out_dir).ok_or_else(|| {
+            anyhow!(
+                "cannot locate monorepo root from out_dir={}, expected to find rest/Cargo.toml in parent dirs",
+                out_dir.display()
+            )
+        })?;
         let rest_crate_path = monorepo_root.join("rest");
         let rest_rel = relative_path(out_dir, &rest_crate_path);
-        let rest_rel = rest_rel.to_string_lossy().to_string();
+        // Normalize Windows backslashes to forward slashes for Cargo.toml.
+        let rest_rel = rest_rel.to_string_lossy().replace('\\', "/");
 
         // 收集 @server(jwt: Xxx) 的 jwt 名称（用于生成 config 字段）
         use std::collections::BTreeSet;
@@ -541,32 +670,68 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
         // src root files
         files.push(Artifact {
             rel_path: entry_file.clone().into(),
-            content: render::render(&main_tpl, &base_ctx).context("render main.tpl")?,
+            content: {
+                // Rust 入口：按代码层生成，避免依赖 goctl 的 Go 模板。
+                r#"//! Generated by rsctl. Safe to edit.
+
+use std::sync::Arc;
+
+use anyhow::Context;
+
+mod config;
+mod handler;
+mod logic;
+mod svc;
+mod types;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {{
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
+    let cfg = config::load("etc/config.yaml").context("load config")?;
+    let addr = cfg.rest.addr_string();
+    let addr = addr.parse().context("parse bind addr")?;
+
+    let svc_ctx = Arc::new(svc::ServiceContext::new(cfg));
+    let app = handler::register_handlers(svc_ctx);
+
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .context("axum serve")?;
+
+    Ok(())
+}}
+"#
+                .to_string()
+            },
         });
 
         // 注意：不再“额外”生成 main.rs（stub）。
         // 入口文件名规则：`<service>.rs`；若 service == "main" 则入口自然是 `main.rs`。
 
-        // config.rs：若使用了 @server(jwt: Xxx) 则生成对应字段（Xxx.access_secret）。
-        // 为避免对模板做脆弱的字符串替换，jwt_names 非空时直接生成完整文件内容。
+        // config.rs：按代码层生成（不使用 goctl 的 Go 模板）。
+        // 若使用了 @server(jwt: Xxx) 则生成对应字段（Xxx.access_secret）。
         files.push(Artifact {
             rel_path: "config.rs".into(),
-            content: if jwt_names.is_empty() {
-                render::render(&config_tpl, &base_ctx).context("render config.tpl")?
-            } else {
+            content: {
                 let mut cfg_rs = String::new();
                 cfg_rs.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
                 cfg_rs.push_str("// rsctl 0.01\n\n");
-                cfg_rs.push_str("use serde::Deserialize;\n");
-                cfg_rs.push_str("use rest::RestConf;\n");
                 cfg_rs.push_str("use anyhow::Context;\n");
+                cfg_rs.push_str("use rest::RestConf;\n");
+                cfg_rs.push_str("use serde::Deserialize;\n");
                 cfg_rs.push_str("use std::fs;\n\n");
 
-                cfg_rs.push_str("#[derive(Debug, Clone, Deserialize)]\n");
-                cfg_rs.push_str("pub struct JwtConf {\n");
-                cfg_rs.push_str("    #[serde(rename = \"AccessSecret\")]\n");
-                cfg_rs.push_str("    pub access_secret: String,\n");
-                cfg_rs.push_str("}\n\n");
+                if !jwt_names.is_empty() {
+                    cfg_rs.push_str("#[derive(Debug, Clone, Deserialize)]\n");
+                    cfg_rs.push_str("pub struct JwtConf {\n");
+                    cfg_rs.push_str("    #[serde(rename = \"AccessSecret\")]\n");
+                    cfg_rs.push_str("    pub access_secret: String,\n");
+                    cfg_rs.push_str("}\n\n");
+                }
 
                 cfg_rs.push_str("#[derive(Debug, Clone, Deserialize)]\n");
                 cfg_rs.push_str("pub struct Config {\n");
@@ -618,7 +783,11 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
         });
         files.push(Artifact {
             rel_path: "svc.rs".into(),
-            content: render::render(&svc_tpl, &base_ctx).context("render svc.tpl")?,
+            content: {
+                let rendered =
+                    render::render(&context_tpl, &base_ctx).context("render context.tpl")?;
+                render_goctl_context_to_rust(&rendered)?
+            },
         });
 
         // handler root + routes
@@ -632,7 +801,8 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
             handler_root.push_str(&mod_decl_with_path("handler", g, &file_base));
         }
         handler_root.push('\n');
-        handler_root.push_str("pub fn register_handlers(svc_ctx: Arc<ServiceContext>) -> Router<Arc<ServiceContext>> {\n");
+        handler_root
+            .push_str("pub fn register_handlers(svc_ctx: Arc<ServiceContext>) -> Router {\n");
         handler_root.push_str("    routes::register_routes(svc_ctx)\n");
         handler_root.push_str("}\n");
         files.push(Artifact {
@@ -646,9 +816,11 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
             routes_rs.push_str("/// generated by rsctl\n");
             routes_rs.push_str("use std::sync::Arc;\n\n");
             routes_rs.push_str("use axum::Router;\n");
+            routes_rs.push_str("use std::collections::BTreeMap;\n");
             routes_rs.push_str("use crate::svc::ServiceContext;\n\n");
-            routes_rs.push_str("pub fn register_routes(svc_ctx: Arc<ServiceContext>) -> Router<Arc<ServiceContext>> {\n");
-            routes_rs.push_str("    let mut app = Router::<Arc<ServiceContext>>::new().route(\"/healthz\", axum::routing::get(|| async { \"ok\" }));\n");
+            routes_rs
+                .push_str("pub fn register_routes(svc_ctx: Arc<ServiceContext>) -> Router {\n");
+            routes_rs.push_str("    let mut app = Router::<Arc<ServiceContext>>::new();\n");
 
             // 逐个 service 生成 add_routes，才能保留 @server(middleware/jwt/...) 的 option 信息。
             // 但如果同一个 method+full_path 在多个 service 块里重复出现，axum 会在启动时 panic。
@@ -783,15 +955,16 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
                         "        // @server(jwt: {jwt_name})\n        rest::WithJwt(svc_ctx.config.{jwt_field}.access_secret.clone()),\n"
                 ));
                 }
-                // `rest::add_routes!` 产出的 Router 默认是 `Router<()>`，这里用 `.with_state::<Arc<ServiceContext>>(())`
-                // 做“类型切换”，让它能 merge 到 `Router<Arc<ServiceContext>>` 中（真正的 state 值由上层 Server 注入）。
-                routes_rs.push_str("    ).with_state::<Arc<ServiceContext>>(()) );\n");
+                // `rest::add_routes!` 返回的 Router state 类型会根据 handler 的 MethodRouter 推导出来，
+                // 这里无需再做 `.with_state::<...>(...)` 转换。
+                routes_rs.push_str("    ) );\n");
 
                 let _ = any; // 允许空块（即便没有 routes），保持结构简单
             }
 
             // svc_ctx 已用于构造 handler；Router 的真实 state 值由上层 `rest::Server::with_state(svc_ctx)` 注入。
-            routes_rs.push_str("    app\n");
+            routes_rs.push_str("    // erase state type so the returned Router can be served via `into_make_service()`\n");
+            routes_rs.push_str("    app.with_state::<()>(svc_ctx)\n");
             routes_rs.push_str("}\n");
 
             files.push(Artifact {
@@ -982,7 +1155,7 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                             .as_deref()
                             .map(|t| api_ty_to_rust(g, t))
                             .unwrap_or_default();
-                        let resp_rust = resp
+                        let _resp_rust = resp
                             .as_deref()
                             .map(|t| {
                                 // 返回类型可能是 `[]T`，逻辑层也需要返回 Vec<T>
@@ -1029,38 +1202,85 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                             }
                         }
 
-                        let ctx = base_ctx
-                            .clone()
-                            .set_bool("HasRequest", req.is_some())
-                            .set_bool("HasResp", resp.is_some())
-                            .set_bool("HasDoc", doc.is_some())
-                            .set_bool("HasValidate", needs_validate)
-                            .set_str(
-                                "Doc",
-                                doc.as_ref()
-                                    .map(|d| format!("/// {}\n", d))
-                                    .unwrap_or_default(),
-                            )
-                            .set_str("HandlerName", h)
-                            .set_str("RequestRustType", req_rust)
-                            .set_str("ResponseRustType", resp_rust)
-                            .set_str("Extractor", extractor)
-                            .set_str("LogicName", g)
-                            .set_str("LogicType", format!("logic::{}Logic", pascal(h)))
-                            .set_str("Call", h)
-                            .set_str(
-                                "AxumMethodFn",
-                                match http_method.unwrap_or(spec::api::HttpMethod::Get) {
-                                    spec::api::HttpMethod::Get => "get",
-                                    spec::api::HttpMethod::Post => "post",
-                                    spec::api::HttpMethod::Put => "put",
-                                    spec::api::HttpMethod::Delete => "delete",
-                                    spec::api::HttpMethod::Patch => "patch",
-                                },
-                            );
+                        // Rust handler（按代码层生成）：模板中的 Go `package/import` 段不做处理，也不参与生成。
+                        let doc_str = doc
+                            .as_ref()
+                            .map(|d| format!("/// {}\n", d))
+                            .unwrap_or_default();
+                        s.push_str(&doc_str);
+                        // builder fn name 与 @handler 一致（snake_case）
+                        let inner_fn = format!("handle_{h}");
+                        s.push_str(&format!(
+                            "pub fn {name}(svc_ctx: Arc<ServiceContext>) -> MethodRouter<Arc<ServiceContext>> {{\n",
+                            name = h
+                        ));
+                        s.push_str(&format!(
+                            "    {}({inner_fn}).with_state(svc_ctx)\n",
+                            match http_method.unwrap_or(spec::api::HttpMethod::Get) {
+                                spec::api::HttpMethod::Get => "get",
+                                spec::api::HttpMethod::Post => "post",
+                                spec::api::HttpMethod::Put => "put",
+                                spec::api::HttpMethod::Delete => "delete",
+                                spec::api::HttpMethod::Patch => "patch",
+                            }
+                        ));
+                        s.push_str("}\n\n");
 
-                        s.push_str(&render::render(&handler_tpl, &ctx)?);
-                        s.push('\n');
+                        // inner handler fn
+                        let has_req = req.is_some();
+                        let has_resp = resp.is_some();
+                        let req_ty = req_rust.as_str();
+                        let extractor = extractor.as_str();
+
+                        s.push_str(&format!("async fn {inner_fn}(\n"));
+                        s.push_str("    axum::extract::State(svc_ctx): axum::extract::State<Arc<ServiceContext>>,\n");
+                        if has_req {
+                            let pat = match extractor {
+                                "Path" => "axum::extract::Path(req): axum::extract::Path<",
+                                "Form" => "axum::extract::Form(req): axum::extract::Form<",
+                                _ => "axum::Json(req): axum::Json<",
+                            };
+                            s.push_str("    ");
+                            s.push_str(pat);
+                            s.push_str(req_ty);
+                            s.push_str(">,\n");
+                        }
+                        s.push_str(") -> impl IntoResponse {\n");
+                        if has_req && needs_validate {
+                            s.push_str("    if let Err(e) = req.validate() {\n");
+                            s.push_str("        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();\n");
+                            s.push_str("    }\n\n");
+                        }
+                        // call logic
+                        let logic_struct = format!("{}Logic", pascal(h));
+                        s.push_str(&format!(
+                            "    let l = crate::logic::{g}::logic::{logic_struct}::new(svc_ctx.clone());\n",
+                            g = g
+                        ));
+                        if has_req {
+                            if has_resp {
+                                s.push_str(&format!(
+                                    "    match l.{call}(req).await {{\n        Ok(resp) => axum::Json(resp).into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                    call = h
+                                ));
+                            } else {
+                                s.push_str(&format!(
+                                    "    match l.{call}(req).await {{\n        Ok(()) => StatusCode::OK.into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                    call = h
+                                ));
+                            }
+                        } else if has_resp {
+                            s.push_str(&format!(
+                                "    match l.{call}().await {{\n        Ok(resp) => axum::Json(resp).into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                call = h
+                            ));
+                        } else {
+                            s.push_str(&format!(
+                                "    match l.{call}().await {{\n        Ok(()) => StatusCode::OK.into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                call = h
+                            ));
+                        }
+                        s.push_str("}\n\n");
                     }
                     if !merge {
                         // Minimal behavior: if merge=false, still keep one file per group for now.
@@ -1122,7 +1342,11 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
 
                         let response_type = format!("anyhow::Result<{resp_ty}>");
                         let return_string = if has_resp {
-                            if resp.as_deref().is_some_and(|t| t.starts_with("[]")) {
+                            if !has_req && h == "healthz" && resp_ty.ends_with("::HealthzResp") {
+                                format!(
+                                    "Ok({resp_ty} {{ code: 0, message: \"ok\".to_string(), data: Default::default() }})"
+                                )
+                            } else if resp.as_deref().is_some_and(|t| t.starts_with("[]")) {
                                 "Ok(Vec::new())".to_string()
                             } else {
                                 format!("Ok({resp_ty}::default())")
@@ -1131,18 +1355,30 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                             "Ok(())".to_string()
                         };
 
-                        let ctx = base_ctx
-                            .clone()
-                            .set_str("logic", logic_name)
-                            .set_str("function", h)
-                            .set_str("responseType", response_type)
-                            .set_str("returnString", return_string)
-                            .set_str("imports", "")
-                            .set_bool("hasDoc", false)
-                            .set_bool("request", has_req)
-                            .set_str("request", req_param);
-                        s.push_str(&render::render(&logic_tpl, &ctx)?);
-                        s.push('\n');
+                        s.push_str(&format!(
+                            "pub struct {logic_name} {{\n    svc_ctx: Arc<ServiceContext>,\n}}\n\n",
+                        ));
+                        s.push_str(&format!(
+                            "impl {logic_name} {{\n    pub fn new(svc_ctx: Arc<ServiceContext>) -> Self {{\n        Self {{ svc_ctx }}\n    }}\n\n"
+                        ));
+                        s.push_str("    #[instrument(skip_all)]\n");
+                        if has_req {
+                            s.push_str(&format!(
+                                "    pub async fn {func}(&self, {req}) -> {resp} {{\n        let _ = &self.svc_ctx;\n        // todo: add your logic here and delete this line\n\n        {ret}\n    }}\n",
+                                func = h,
+                                req = req_param,
+                                resp = response_type,
+                                ret = return_string
+                            ));
+                        } else {
+                            s.push_str(&format!(
+                                "    pub async fn {func}(&self) -> {resp} {{\n        let _ = &self.svc_ctx;\n        // todo: add your logic here and delete this line\n\n        {ret}\n    }}\n",
+                                func = h,
+                                resp = response_type,
+                                ret = return_string
+                            ));
+                        }
+                        s.push_str("}\n\n");
                     }
                     if !merge {
                         // Minimal behavior: keep group-level file even when merge=false.
@@ -1162,7 +1398,8 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                 content: {
                     // generate structs for referenced request/response types in this group
                     let mut decls: Vec<String> = Vec::new();
-                    let mut seen = std::collections::BTreeSet::<String>::new();
+                    let mut required = std::collections::BTreeSet::<String>::new();
+                    let mut queue = std::collections::VecDeque::<String>::new();
                     let type_map: std::collections::BTreeMap<String, &spec::api::TypeDef> =
                         spec.types.iter().map(|t| (t.name.clone(), t)).collect();
                     let mut need_validate = false;
@@ -1175,21 +1412,39 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                         for r in &service.routes {
                             if let Some(t) = &r.request {
                                 if let Some(inner) = t.strip_prefix("[]") {
-                                    seen.insert(inner.to_string());
+                                    queue.push_back(inner.to_string());
                                 } else {
-                                seen.insert(t.clone());
+                                    queue.push_back(t.clone());
                                 }
                             }
                             if let Some(t) = &r.response {
                                 if let Some(inner) = t.strip_prefix("[]") {
-                                    seen.insert(inner.to_string());
+                                    queue.push_back(inner.to_string());
                                 } else {
-                                seen.insert(t.clone());
+                                    queue.push_back(t.clone());
                                 }
                             }
                         }
                     }
-                    for t in seen {
+
+                    // 递归收集：把 response/request 结构体字段中引用到的自定义类型也一并生成。
+                    while let Some(t) = queue.pop_front() {
+                        let t = t.strip_prefix("[]").unwrap_or(&t).to_string();
+                        if !required.insert(t.clone()) {
+                            continue;
+                        }
+
+                        if let Some(td) = type_map.get(&t) {
+                            for f in &td.fields {
+                                let ft = f.ty.strip_prefix("[]").unwrap_or(&f.ty).to_string();
+                                if type_map.contains_key(&ft) && !required.contains(&ft) {
+                                    queue.push_back(ft);
+                                }
+                            }
+                        }
+                    }
+
+                    for t in required {
                         // array type in returns: `[]T` is not a struct, skip
                         if t.starts_with("[]") {
                             continue;
@@ -1241,15 +1496,21 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                         ));
                     }
                     }
-                    let ctx = base_ctx
-                        .clone()
-                        .set_bool("containsTime", false)
-                        .set_bool("containsValidate", need_validate)
-                        .set_str("types", decls.join("\n"));
-                    render::render(&types_tpl, &ctx)?
+                    let mut out = String::new();
+                    out.push_str("// Code generated by rsctl. DO NOT EDIT.\n");
+                    out.push_str("// rsctl 0.01\n\n");
+                    out.push_str("use serde::{Deserialize, Serialize};\n");
+                    if need_validate {
+                        out.push_str("use validator::Validate;\n");
+                    }
+                    out.push('\n');
+                    out.push_str(&decls.join("\n"));
+                    out
                 },
             });
         }
+
+        // NOTE: /healthz 等默认路由应由 api.api 显式声明，避免生成器暗含行为。
 
         Ok(Artifacts { files })
     }

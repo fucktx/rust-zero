@@ -92,6 +92,12 @@ pub fn parse(input: &str) -> Result<Ast> {
             Rule::syntax_stmt | Rule::info_block => {
                 // ignore
             }
+            Rule::type_group_block => {
+                let tds = parse_type_group_block(p)?;
+                for td in tds {
+                    items.push(Item::Type(td));
+                }
+            }
             Rule::type_block => {
                 let td = parse_type_block(p)?;
                 items.push(Item::Type(td));
@@ -319,6 +325,28 @@ fn unquote_if_needed(s: &str) -> String {
     }
 }
 
+fn parse_type_group_block(pair: pest::iterators::Pair<Rule>) -> Result<Vec<TypeDef>> {
+    let mut out: Vec<TypeDef> = Vec::new();
+    for p in pair.into_inner() {
+        if p.as_rule() == Rule::type_group_item {
+            let mut inner = p.into_inner();
+            let name = inner
+                .next()
+                .context("type group item: missing name")?
+                .as_str()
+                .to_string();
+            let mut fields: Vec<Field> = Vec::new();
+            for fp in inner {
+                if fp.as_rule() == Rule::field_stmt {
+                    fields.push(parse_field_stmt(fp)?);
+                }
+            }
+            out.push(TypeDef { name, fields });
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +377,36 @@ service user {
 
         let ast = parse(input).unwrap();
         assert!(!ast.items.is_empty());
+    }
+
+    #[test]
+    fn parse_type_group_should_work() {
+        let input = r#"
+syntax = "v1"
+
+type (
+  LoginReq {
+    Username string `json:"username"`
+    Password string `json:"password"`
+  }
+  LoginResp {
+    Id int64 `json:"id"`
+  }
+)
+
+@server (group: login prefix: /v1)
+service user {
+  @handler login
+  post /user/login (LoginReq) returns (LoginResp)
+}
+"#;
+
+        let ast = parse(input).unwrap();
+        let types = ast
+            .items
+            .iter()
+            .filter(|it| matches!(it, Item::Type(_)))
+            .count();
+        assert_eq!(types, 2);
     }
 }
