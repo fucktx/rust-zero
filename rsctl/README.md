@@ -6,29 +6,11 @@
 
 ### 安装/构建 rsctl
 
-#### 方法1：直接从 Git 仓库安装（推荐）
+#### 直接从 Git 仓库安装（推荐）
 
 ```bash
 cargo install --git https://github.com/fucktx/rust-zero --branch api --bin rsctl --force
 ```
-
-#### 方法2：克隆后本地安装
-
-```bash
-git clone -b api https://github.com/fucktx/rust-zero.git
-cd rust-zero/rsctl
-cargo install --path cli --force
-```
-
-#### 方法3：本地构建
-
-```bash
-git clone -b api https://github.com/fucktx/rust-zero.git
-cd rust-zero/rsctl
-make build
-```
-
-构建产物位于 `rsctl/dist/rsctl`（Windows 为 `rsctl/dist/rsctl.exe`）。你可以手动加入 PATH，或直接使用该文件。
 
 ### 模板管理（template）
 
