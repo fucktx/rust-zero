@@ -1,6 +1,4 @@
-# rsctl workspace
-
-该目录是 `rsctl` 的独立 Rust workspace，用于实现“描述文件 -> 解析 -> 语义归一 -> Spec(IR) -> 代码生成 -> 写盘”的完整流水线。
+# rsctl
 
 ## 快速开始
 
