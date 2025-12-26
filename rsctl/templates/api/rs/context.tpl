@@ -1,20 +1,18 @@
-// Code scaffolded by goctl. Safe to edit.
+// Code scaffolded by rsctl. Safe to edit.
 // rsctl {{.version}}
 
-package svc
+{{.configImport}}
 
-import (
-	{{.configImport}}
-)
-
-type ServiceContext struct {
-	Config {{.config}}
-	{{.middleware}}
+pub struct ServiceContext {
+    pub config: {{.config}},
+    {{.middleware}}
 }
 
-func NewServiceContext(c {{.config}}) *ServiceContext {
-	return &ServiceContext{
-		Config: c,
-		{{.middlewareAssignment}}
-	}
+impl ServiceContext {
+    pub fn new(config: {{.config}}) -> Self {
+        Self {
+            config,
+            {{.middlewareAssignment}}
+        }
+    }
 }

@@ -162,6 +162,26 @@ pub mod rs {
                     let _ = fs::remove_file(&main_rs);
                 }
             }
+
+            // 历史遗留：旧版本会生成 `middleware/jwt.rs`，现在 JWT 已下沉到 `rest` 内置中间件；
+            // overwrite=true 时主动清理，避免残留文件导致编译错误/误导。
+            let legacy_jwt = cfg.out_dir.join("middleware").join("jwt.rs");
+            if legacy_jwt.exists() {
+                let _ = fs::remove_file(&legacy_jwt);
+            }
+
+            // 历史遗留：旧版本会生成 `handler/routes.rs`，现在改为 `server.rs`；
+            // overwrite=true 时主动清理，避免残留文件干扰理解。
+            let legacy_routes = cfg.out_dir.join("handler").join("routes.rs");
+            if legacy_routes.exists() {
+                let _ = fs::remove_file(&legacy_routes);
+            }
+
+            // 历史遗留：之前生成过 `server.rs`，现在不再生成（启动走 rest::server）。
+            let legacy_server_rs = cfg.out_dir.join("server.rs");
+            if legacy_server_rs.exists() {
+                let _ = fs::remove_file(&legacy_server_rs);
+            }
         }
 
         for f in &artifacts.files {

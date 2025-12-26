@@ -1,29 +1,10 @@
 // Code scaffolded by rsctl. Safe to edit.
 // rsctl {{.version}}
 
-package {{.pkgName}}
+use std::sync::Arc;
 
-import (
-	{{.imports}}
-)
+use tracing::instrument;
 
-type {{.logic}} struct {
-	logx.Logger
-	ctx    context.Context
-	svcCtx *svc.ServiceContext
-}
+use crate::svc::ServiceContext;
 
-{{if .hasDoc}}{{.doc}}{{end}}
-func New{{.logic}}(ctx context.Context, svcCtx *svc.ServiceContext) *{{.logic}} {
-	return &{{.logic}}{
-		Logger: logx.WithContext(ctx),
-		ctx:    ctx,
-		svcCtx: svcCtx,
-	}
-}
-
-func (l *{{.logic}}) {{.function}}({{.request}}) {{.responseType}} {
-	// todo: add your logic here and delete this line
-
-	{{.returnString}}
-}
+{{.logics}}

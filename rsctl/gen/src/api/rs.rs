@@ -85,7 +85,12 @@ pub mod shared {
         // 因此用当前工作目录拼成一个可向上遍历的绝对/半绝对路径。
         let mut dir = std::env::current_dir().ok()?.join(out_dir);
         loop {
-            if dir.join("rest").join("Cargo.toml").is_file() {
+            if dir
+                .join("crates")
+                .join("rust-zero")
+                .join("Cargo.toml")
+                .is_file()
+            {
                 return Some(dir);
             }
             if !dir.pop() {
@@ -278,123 +283,6 @@ pub mod shared {
         out
     }
 
-    /// 将渲染后的 goctl `context.tpl`（Go 代码风格）转换为 Rust 的 `ServiceContext`。
-    ///
-    /// 约束：
-    /// - 模板文件尽量保持 goctl 原样（变量名/结构不动）；
-    /// - 生成器侧仅把其中的“语义信息”（config 类型 + middleware 字段/赋值）映射到 Rust；
-    /// - `package/import` 段落不会进入输出。
-    fn render_goctl_context_to_rust(rendered: &str) -> Result<String> {
-        let mut config_ty: Option<String> = None;
-        let mut middleware_fields: Vec<String> = Vec::new();
-        let mut middleware_assign: Vec<String> = Vec::new();
-
-        // 解析 struct 区块中的字段（我们只关心 Config + middleware 占位）。
-        let mut in_struct = false;
-        for raw in rendered.lines() {
-            let line = raw.trim();
-            if line.starts_with("type ServiceContext struct") {
-                in_struct = true;
-                continue;
-            }
-            if in_struct {
-                if line == "}" {
-                    in_struct = false;
-                    continue;
-                }
-                if line.is_empty() {
-                    continue;
-                }
-                // Go 风格：`Config <type>`
-                if let Some(rest) = line.strip_prefix("Config ") {
-                    let ty = rest.trim();
-                    if !ty.is_empty() {
-                        config_ty = Some(ty.to_string());
-                    }
-                    continue;
-                }
-                // 其余视为 middleware 字段（允许模板直接塞 Rust 片段）。
-                middleware_fields.push(raw.to_string());
-            }
-        }
-
-        // 解析 NewServiceContext 的 struct literal 区块里的赋值。
-        // Go 风格：
-        // return &ServiceContext{
-        //     Config: c,
-        //     {{.middlewareAssignment}}
-        // }
-        let mut in_literal = false;
-        for raw in rendered.lines() {
-            let line = raw.trim();
-            if line.starts_with("return &ServiceContext{") {
-                in_literal = true;
-                continue;
-            }
-            if in_literal {
-                if line == "}" {
-                    in_literal = false;
-                    continue;
-                }
-                if line.is_empty() {
-                    continue;
-                }
-                if line.starts_with("Config:") {
-                    continue;
-                }
-                middleware_assign.push(raw.to_string());
-            }
-        }
-
-        let config_ty = config_ty.unwrap_or_else(|| "crate::config::Config".to_string());
-        let (config_use, config_ty) = if config_ty == "crate::config::Config" {
-            ("use crate::config::Config;\n\n", "Config".to_string())
-        } else {
-            ("", config_ty)
-        };
-
-        // 输出 Rust
-        let mut out = String::new();
-        out.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
-        out.push_str("// rsctl 0.01\n\n");
-        out.push_str(config_use);
-        out.push_str(&format!(
-            "pub struct ServiceContext {{\n    pub config: {config_ty},\n"
-        ));
-        for l in middleware_fields {
-            if l.trim().is_empty() {
-                continue;
-            }
-            out.push_str("    ");
-            out.push_str(l.trim());
-            if !l.trim().ends_with(',') {
-                out.push(',');
-            }
-            out.push('\n');
-        }
-        out.push_str("}\n\n");
-        out.push_str("impl ServiceContext {\n");
-        out.push_str(&format!("    pub fn new(config: {config_ty}) -> Self {{\n"));
-        out.push_str("        Self {\n");
-        out.push_str("            config,\n");
-        for l in middleware_assign {
-            let t = l.trim();
-            if t.is_empty() {
-                continue;
-            }
-            out.push_str("            ");
-            out.push_str(t);
-            if !t.ends_with(',') {
-                out.push(',');
-            }
-            out.push('\n');
-        }
-        out.push_str("        }\n");
-        out.push_str("    }\n");
-        out.push_str("}\n");
-        Ok(out)
-    }
-
     fn join_paths(prefix: &str, path: &str) -> String {
         let pfx = prefix.trim_end_matches('/');
         let mut p = path.to_string();
@@ -408,6 +296,21 @@ pub mod shared {
             return pfx.to_string();
         }
         format!("{pfx}{p}")
+    }
+
+    fn indent_block(s: &str, spaces: usize) -> String {
+        let pad = " ".repeat(spaces);
+        s.lines()
+            .map(|l| {
+                if l.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
     }
 
     fn template_dir(template_root: &Path) -> PathBuf {
@@ -507,11 +410,25 @@ pub mod shared {
         // - 模板保持 goctl 的变量命名，以便未来直接替换为 goctl 官方模板。
         // - 框架差异在代码层（axum/actix）处理。
         let tmpl_dir = template_dir(template_root);
-        // 只依赖少量“非 Rust 源码”的模板文件：
-        // - `etc.tpl`: config.yaml 的最小模板
-        // - `context.tpl`: 为了保留 goctl 变量命名，但生成器侧会转换为 Rust `svc.rs`
+        // 依赖模板文件（变量名保持 goctl 风格，但内容已调整为 Rust/YAML）：
+        // - `main.tpl`: 入口（Rust）
+        // - `config.tpl`: 配置（Rust）
+        // - `context.tpl`: ServiceContext（Rust，历史命名保留）
+        // - `routes.tpl`: 路由表（Rust）
+        // - `handler.tpl`: handler（Rust）
+        // - `logic.tpl`: logic（Rust）
+        // - `types.tpl`: types（Rust）
+        // - `middleware.tpl`: middleware（Rust）
+        // - `etc.tpl`: 默认配置文件（YAML）
         let _ = must_exist(&tmpl_dir, "context.tpl")?;
         let _ = must_exist(&tmpl_dir, "etc.tpl")?;
+        let _ = must_exist(&tmpl_dir, "main.tpl")?;
+        let _ = must_exist(&tmpl_dir, "config.tpl")?;
+        let _ = must_exist(&tmpl_dir, "routes.tpl")?;
+        let _ = must_exist(&tmpl_dir, "handler.tpl")?;
+        let _ = must_exist(&tmpl_dir, "logic.tpl")?;
+        let _ = must_exist(&tmpl_dir, "types.tpl")?;
+        let _ = must_exist(&tmpl_dir, "middleware.tpl")?;
 
         use std::collections::BTreeMap;
 
@@ -546,8 +463,25 @@ pub mod shared {
         let mut files: Vec<Artifact> = Vec::new();
 
         // Base template context
+        let main_attr = if framework == "actix" {
+            "#[actix_web::main]"
+        } else {
+            "#[tokio::main]"
+        };
+        let handler_imports = if framework == "actix" {
+            "use actix_web::HttpResponse;\nuse actix_web::web;\n"
+        } else {
+            "use axum::http::StatusCode;\nuse axum::response::IntoResponse;\nuse axum::Extension;\nuse axum::Json;\n"
+        };
+        let server_start = if framework == "actix" {
+            "    rust_zero::rest::server::start(engine, app)\n        .await\n        .map_err(anyhow::Error::from)\n        .context(\"actix serve\")?;"
+        } else {
+            "    rust_zero::rest::server::start(engine, app).await.context(\"axum serve\")?;"
+        };
+
+        let rsctl_version = std::env::var("RSCTL_VERSION").unwrap_or_else(|_| "unknown".into());
         let base_ctx = render::Context::new()
-            .set_str("version", "0.01")
+            .set_str("version", &rsctl_version)
             .set_str("serviceName", &service_name)
             .set_str("host", "0.0.0.0")
             .set_str("port", "8888")
@@ -557,26 +491,35 @@ pub mod shared {
             .set_str("configImport", "")
             .set_str("config", "crate::config::Config")
             .set_str("middleware", "")
-            .set_str("middlewareAssignment", "");
+            .set_str("middlewareAssignment", "")
+            .set_str("mainAttr", main_attr)
+            .set_str("handlerImports", handler_imports)
+            .set_str("serverStart", server_start);
 
         let context_tpl = read_tpl(&tmpl_dir, "context.tpl")?;
         let etc_tpl = read_tpl(&tmpl_dir, "etc.tpl")?;
+        let main_tpl = read_tpl(&tmpl_dir, "main.tpl")?;
+        let config_tpl = read_tpl(&tmpl_dir, "config.tpl")?;
+        let routes_tpl = read_tpl(&tmpl_dir, "routes.tpl")?;
+        let handler_tpl = read_tpl(&tmpl_dir, "handler.tpl")?;
+        let logic_tpl = read_tpl(&tmpl_dir, "logic.tpl")?;
+        let types_tpl = read_tpl(&tmpl_dir, "types.tpl")?;
+        let middleware_tpl = read_tpl(&tmpl_dir, "middleware.tpl")?;
 
         // Project root
         // NOTE:
-        // - 生成的工程默认依赖当前仓库内的 `rest` crate（用于 `rest::router!` DSL）。
+        // - 生成的工程默认依赖当前仓库内的 `rust-zero` crate（用于 `rust_zero::rest::router!` DSL）。
         // - `template_root` 可能来自 `~/.rsctl/<version>/`（用户安装目录），因此不能再用它推导 monorepo 根。
-        // - 这里改为从 `out_dir` 向上查找 `rest/Cargo.toml` 来定位 monorepo 根（更稳）。
+        // - 这里改为从 `out_dir` 向上查找 `rust-zero/Cargo.toml` 来定位 monorepo 根（更稳）。
         let monorepo_root = find_monorepo_root(out_dir).ok_or_else(|| {
             anyhow!(
-                "cannot locate monorepo root from out_dir={}, expected to find rest/Cargo.toml in parent dirs",
+                "cannot locate monorepo root from out_dir={}, expected to find rust-zero/Cargo.toml in parent dirs",
                 out_dir.display()
             )
         })?;
-        let rest_crate_path = monorepo_root.join("rest");
-        let rest_rel = relative_path(out_dir, &rest_crate_path);
-        // Normalize Windows backslashes to forward slashes for Cargo.toml.
-        let rest_rel = rest_rel.to_string_lossy().replace('\\', "/");
+        let rust_zero_crate_path = monorepo_root.join("crates").join("rust-zero");
+        let rust_zero_rel = relative_path(out_dir, &rust_zero_crate_path);
+        let rust_zero_rel = rust_zero_rel.to_string_lossy().replace('\\', "/");
 
         // 收集 @server(jwt: Xxx) 的 jwt 名称（用于生成 config 字段）
         use std::collections::BTreeSet;
@@ -587,12 +530,18 @@ pub mod shared {
             }
         }
 
-        // 是否需要启用 rest 的 jwt feature（由 @server(jwt: ...) 决定）
-        let use_jwt = !jwt_names.is_empty();
-        let rest_features = if use_jwt {
-            "[\"axum\", \"jwt\"]"
+        // 生成后的项目选择原生框架依赖（axum/actix-web），并把 `rest` 的 feature 对齐到同一框架。
+        // 若 api 里声明了 @server(jwt: ...) 则额外启用 `rest/jwt`（JWT 作为 rest 内置中间件）。
+        let (framework_dep, rest_features) = if framework == "actix" {
+            if jwt_names.is_empty() {
+                ("actix-web = \"4\"", "[\"actix\"]")
+            } else {
+                ("actix-web = \"4\"", "[\"actix\", \"jwt\"]")
+            }
+        } else if jwt_names.is_empty() {
+            ("axum = \"0.6\"", "[\"axum\"]")
         } else {
-            "[\"axum\"]"
+            ("axum = \"0.6\"", "[\"axum\", \"jwt\"]")
         };
 
         // validator（按 type 字段 tag 是否包含 validate:"..." 决定）
@@ -611,6 +560,8 @@ pub mod shared {
             ""
         };
 
+        let jsonwebtoken_dep = "";
+
         files.push(Artifact {
             rel_path: "Cargo.toml".into(),
             content: format!(
@@ -625,15 +576,16 @@ path = "{entry_file}"
 
 [dependencies]
 anyhow = "1"
-axum = "0.6"
+{framework_dep}
 http = "0.2"
 serde = {{ version = "1", features = ["derive"] }}
-serde_yaml = "0.9"
+serde_json = "1"
 tokio = {{ version = "1", features = ["macros", "rt-multi-thread", "signal"] }}
 tracing = "0.1"
 tracing-subscriber = {{ version = "0.3", features = ["env-filter"] }}
-rest = {{ path = "{rest_rel}", features = {rest_features} }}
+rust_zero = {{ package = "rust-zero", path = "{rust_zero_rel}", features = {rest_features} }}
 {validator_dep}
+{jsonwebtoken_dep}
 
 [workspace]
 
@@ -641,8 +593,10 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
             ),
         });
 
+        let default_cfg_path = format!("etc/{service_name}.yaml");
+
         files.push(Artifact {
-            rel_path: "etc/config.yaml".into(),
+            rel_path: default_cfg_path.clone().into(),
             content: {
                 let mut c = render::render(&etc_tpl, &base_ctx).context("render etc.tpl")?;
                 // 追加 jwt 配置段落（按注解名生成）
@@ -670,157 +624,81 @@ rest = {{ path = "{rest_rel}", features = {rest_features} }}
         // src root files
         files.push(Artifact {
             rel_path: entry_file.clone().into(),
-            content: {
-                // Rust 入口：按代码层生成，避免依赖 goctl 的 Go 模板。
-                r#"//! Generated by rsctl. Safe to edit.
-
-use std::sync::Arc;
-
-use anyhow::Context;
-
-mod config;
-mod handler;
-mod logic;
-mod svc;
-mod types;
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {{
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
-
-    let cfg = config::load("etc/config.yaml").context("load config")?;
-    let addr = cfg.rest.addr_string();
-    let addr = addr.parse().context("parse bind addr")?;
-
-    let svc_ctx = Arc::new(svc::ServiceContext::new(cfg));
-    let app = handler::register_handlers(svc_ctx);
-
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .context("axum serve")?;
-
-    Ok(())
-}}
-"#
-                .to_string()
-            },
+            content: { render::render(&main_tpl, &base_ctx).context("render main.tpl")? },
         });
 
         // 注意：不再“额外”生成 main.rs（stub）。
         // 入口文件名规则：`<service>.rs`；若 service == "main" 则入口自然是 `main.rs`。
 
-        // config.rs：按代码层生成（不使用 goctl 的 Go 模板）。
-        // 若使用了 @server(jwt: Xxx) 则生成对应字段（Xxx.access_secret）。
+        // config.rs：渲染 Rust 模板（config.tpl）。
         files.push(Artifact {
             rel_path: "config.rs".into(),
             content: {
-                let mut cfg_rs = String::new();
-                cfg_rs.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
-                cfg_rs.push_str("// rsctl 0.01\n\n");
-                cfg_rs.push_str("use anyhow::Context;\n");
-                cfg_rs.push_str("use rest::RestConf;\n");
-                cfg_rs.push_str("use serde::Deserialize;\n");
-                cfg_rs.push_str("use std::fs;\n\n");
+                let (jwt_conf, jwt_field, jwt_default) = if jwt_names.is_empty() {
+                    (String::new(), String::new(), String::new())
+                } else {
+                    let jwt_conf = r#"#[derive(Debug, Clone, Deserialize, Default)]
+pub struct JwtConf {
+    #[serde(rename = "AccessSecret")]
+    pub access_secret: String,
+}
+"#
+                    .to_string();
 
-                if !jwt_names.is_empty() {
-                    cfg_rs.push_str("#[derive(Debug, Clone, Deserialize)]\n");
-                    cfg_rs.push_str("pub struct JwtConf {\n");
-                    cfg_rs.push_str("    #[serde(rename = \"AccessSecret\")]\n");
-                    cfg_rs.push_str("    pub access_secret: String,\n");
-                    cfg_rs.push_str("}\n\n");
-                }
+                    let mut fields: Vec<String> = Vec::new();
+                    let mut defaults: Vec<String> = Vec::new();
+                    for j in &jwt_names {
+                        let key = {
+                            let mut ch = j.chars();
+                            match ch.next() {
+                                None => j.clone(),
+                                Some(f) => f.to_ascii_uppercase().to_string() + ch.as_str(),
+                            }
+                        };
+                        fields.push(format!(
+                            "#[serde(rename = \"{key}\")]\n    pub {j}: JwtConf,"
+                        ));
+                        defaults.push(format!("{j}: JwtConf {{ access_secret: String::new() }},"));
+                    }
 
-                cfg_rs.push_str("#[derive(Debug, Clone, Deserialize)]\n");
-                cfg_rs.push_str("pub struct Config {\n");
-                cfg_rs.push_str("    #[serde(flatten)]\n");
-                cfg_rs.push_str("    pub rest: RestConf,\n");
-                for j in &jwt_names {
-                    let key = {
-                        let mut ch = j.chars();
-                        match ch.next() {
-                            None => j.clone(),
-                            Some(f) => f.to_ascii_uppercase().to_string() + ch.as_str(),
-                        }
-                    };
-                    cfg_rs.push_str(&format!("    #[serde(rename = \"{key}\")]\n"));
-                    cfg_rs.push_str(&format!("    pub {j}: JwtConf,\n"));
-                }
-                cfg_rs.push_str("}\n\n");
+                    (
+                        jwt_conf,
+                        fields.join("\n\n"),
+                        defaults.join("\n            "),
+                    )
+                };
 
-                cfg_rs.push_str("impl Default for Config {\n");
-                cfg_rs.push_str("    fn default() -> Self {\n");
-                cfg_rs.push_str("        Self {\n");
-                cfg_rs.push_str("            rest: RestConf::default(),\n");
-                for j in &jwt_names {
-                    cfg_rs.push_str(&format!(
-                        "            {j}: JwtConf {{ access_secret: String::new() }},\n"
-                    ));
-                }
-                cfg_rs.push_str("        }\n");
-                cfg_rs.push_str("    }\n");
-                cfg_rs.push_str("}\n\n");
-
-                cfg_rs.push_str("pub fn load_config() -> Config {\n");
-                cfg_rs.push_str("    Config::default()\n");
-                cfg_rs.push_str("}\n\n");
-
-                cfg_rs.push_str("/// 从 YAML 配置文件加载。\n");
-                cfg_rs.push_str("pub fn load(path: &str) -> anyhow::Result<Config> {\n");
-                cfg_rs.push_str(
-                    "    let raw = fs::read_to_string(path).with_context(|| format!(\"read config: {path}\"))?;\n",
-                );
-                cfg_rs.push_str(
-                    "    let cfg: Config = serde_yaml::from_str(&raw).context(\"parse yaml config\")?;\n",
-                );
-                cfg_rs.push_str("    Ok(cfg)\n");
-                cfg_rs.push_str("}\n");
-
-                cfg_rs
+                let ctx = base_ctx
+                    .clone()
+                    .set_str("jwtConf", jwt_conf)
+                    .set_str("jwtField", jwt_field)
+                    .set_str("jwtDefault", jwt_default);
+                render::render(&config_tpl, &ctx).context("render config.tpl")?
             },
         });
         files.push(Artifact {
             rel_path: "svc.rs".into(),
-            content: {
-                let rendered =
-                    render::render(&context_tpl, &base_ctx).context("render context.tpl")?;
-                render_goctl_context_to_rust(&rendered)?
-            },
+            content: { render::render(&context_tpl, &base_ctx).context("render context.tpl")? },
         });
 
-        // handler root + routes
+        // handler root（handler 子模块 + routes）
         let mut handler_root = "/// generated by rsctl\n".to_string();
-        handler_root.push_str("use std::sync::Arc;\n\n");
-        handler_root.push_str("use axum::Router;\n");
-        handler_root.push_str("use crate::svc::ServiceContext;\n\n");
+        handler_root.push('\n');
         handler_root.push_str("pub mod routes;\n");
         for g in group_handlers.keys() {
             let file_base = group_file_base(g, style);
             handler_root.push_str(&mod_decl_with_path("handler", g, &file_base));
         }
-        handler_root.push('\n');
-        handler_root
-            .push_str("pub fn register_handlers(svc_ctx: Arc<ServiceContext>) -> Router {\n");
-        handler_root.push_str("    routes::register_routes(svc_ctx)\n");
-        handler_root.push_str("}\n");
         files.push(Artifact {
             rel_path: "handler.rs".into(),
             content: handler_root,
         });
 
-        // routes.rs：路由表（go-zero 风格：集中定义路由 + options）
+        // routes.rs：路由构建（Rust 模板：routes.tpl）
         {
-            let mut routes_rs = String::new();
-            routes_rs.push_str("/// generated by rsctl\n");
-            routes_rs.push_str("use std::sync::Arc;\n\n");
-            routes_rs.push_str("use axum::Router;\n");
-            routes_rs.push_str("use std::collections::BTreeMap;\n");
-            routes_rs.push_str("use crate::svc::ServiceContext;\n\n");
-            routes_rs
-                .push_str("pub fn register_routes(svc_ctx: Arc<ServiceContext>) -> Router {\n");
-            routes_rs.push_str("    let mut app = Router::<Arc<ServiceContext>>::new();\n");
+            use std::collections::BTreeMap;
+            let mut routes_additions = String::new();
+            routes_additions.push_str("state $svc_ctx.clone();\n");
 
             // 逐个 service 生成 add_routes，才能保留 @server(middleware/jwt/...) 的 option 信息。
             // 但如果同一个 method+full_path 在多个 service 块里重复出现，axum 会在启动时 panic。
@@ -906,10 +784,33 @@ async fn main() -> anyhow::Result<()> {{
                 let mw = service_middleware(service);
                 let jwt = service_jwt(service);
 
-                routes_rs.push_str("    app = app.merge(rest::add_routes!(\n");
-                routes_rs.push_str("        [\n");
-
                 let mut any = false;
+                let mut block = String::new();
+                if let Some(mw_name) = &mw {
+                    let mw_mod = snake(mw_name);
+                    block.push_str(&format!(
+                        "middleware_fn crate::middleware::{mw_mod}::handle;\n"
+                    ));
+                }
+                if let Some(jwt_name) = &jwt {
+                    let jwt_field = snake(jwt_name);
+                    if framework == "actix" {
+                        // JWT 内置于 rest：生成器只负责把 secret 注入到 closure（满足 'static）
+                        block.push_str(&format!(
+                            "middleware_fn ({{
+    let secret = $svc_ctx.config.{jwt_field}.access_secret.clone();
+    move |req, next| {{
+        let secret = secret.clone();
+        async move {{ rust_zero::rest::middleware::jwt::actix_jwt::handle(req, next, secret).await }}
+    }}
+}});\n"
+                        ));
+                    } else {
+                        block.push_str(&format!(
+                            "middleware_state rust_zero::rest::middleware::jwt::axum_jwt::state($svc_ctx.config.{jwt_field}.access_secret.clone()), rust_zero::rest::middleware::jwt::axum_jwt::auth;\n"
+                        ));
+                    }
+                }
                 for r in &service.routes {
                     let Some(h) = route_handler_name(r) else {
                         continue;
@@ -933,47 +834,39 @@ async fn main() -> anyhow::Result<()> {{
                     }
 
                     any = true;
-                    routes_rs.push_str(&format!(
-                        "            {{ method: http::Method::{method}, path: \"{}\", handler: crate::handler::{}::handler::{}(svc_ctx.clone()) }},\n",
-                        r.path, group, h
+                    block.push_str(&format!(
+                        "{method} \"{}\" => crate::handler::{group}::handler::{h};\n",
+                        r.path
                     ));
                 }
 
-                routes_rs.push_str("        ],\n");
-                if !prefix.trim().is_empty() {
-                    routes_rs.push_str(&format!("        rest::WithPrefix(\"{prefix}\"),\n"));
+                if any {
+                    if !prefix.trim().is_empty() {
+                        routes_additions.push_str(&format!(
+                            "group \"{prefix}\" {{\n{block}}}\n",
+                            prefix = prefix,
+                            block = indent_block(&block, 4)
+                        ));
+                    } else {
+                        routes_additions.push_str(&block);
+                    }
                 }
-                if let Some(mw_name) = mw {
-                    let mw_mod = snake(&mw_name);
-                    routes_rs.push_str(&format!(
-                        "        // @server(middleware: {mw_name})\n        rest::WithMiddleware(axum::middleware::from_fn(crate::middleware::{mw_mod}::handle)),\n"
-                    ));
-                }
-                if let Some(jwt_name) = jwt {
-                    let jwt_field = snake(&jwt_name);
-                    routes_rs.push_str(&format!(
-                        "        // @server(jwt: {jwt_name})\n        rest::WithJwt(svc_ctx.config.{jwt_field}.access_secret.clone()),\n"
-                ));
-                }
-                // `rest::add_routes!` 返回的 Router state 类型会根据 handler 的 MethodRouter 推导出来，
-                // 这里无需再做 `.with_state::<...>(...)` 转换。
-                routes_rs.push_str("    ) );\n");
 
-                let _ = any; // 允许空块（即便没有 routes），保持结构简单
+                let _ = group; // keep group var to preserve handler path calculation
             }
 
-            // svc_ctx 已用于构造 handler；Router 的真实 state 值由上层 `rest::Server::with_state(svc_ctx)` 注入。
-            routes_rs.push_str("    // erase state type so the returned Router can be served via `into_make_service()`\n");
-            routes_rs.push_str("    app.with_state::<()>(svc_ctx)\n");
-            routes_rs.push_str("}\n");
-
+            let routes_ctx = base_ctx
+                .clone()
+                .set_str("routesAdditions", routes_additions);
             files.push(Artifact {
                 rel_path: "handler/routes.rs".into(),
-                content: routes_rs,
+                content: render::render(&routes_tpl, &routes_ctx).context("render routes.tpl")?,
             });
         }
 
-        // middleware 模块：仅当 api 里声明了 @server(middleware: ...) 才生成占位文件
+        // middleware 模块：
+        // - 若 api 里声明了 @server(middleware: ...) 则生成占位 middleware；
+        // - JWT 由 rest 内置提供（不再生成 jwt.rs）。
         {
             use std::collections::BTreeSet;
             let mut mws: BTreeSet<String> = BTreeSet::new();
@@ -982,42 +875,45 @@ async fn main() -> anyhow::Result<()> {{
                     mws.insert(snake(&m));
                 }
             }
-            if !mws.is_empty() {
-                let mut root = String::new();
-                root.push_str("/// generated by rsctl\n");
-                root.push_str("pub mod prelude;\n");
-                for m in &mws {
-                    root.push_str(&format!("pub mod {m};\n"));
-                }
+            // 为了匹配模板中的 `mod middleware;`，即使没有任何自定义 middleware 也生成一个空模块文件。
+            let mut root = String::new();
+            root.push_str("/// generated by rsctl\n");
+            root.push_str("pub mod prelude;\n");
+            for m in &mws {
+                root.push_str(&format!("pub mod {m};\n"));
+            }
+            files.push(Artifact {
+                rel_path: "middleware.rs".into(),
+                content: root,
+            });
+            files.push(Artifact {
+                rel_path: "middleware/prelude.rs".into(),
+                content: "// generated by rsctl\n".to_string(),
+            });
+            for m in &mws {
                 files.push(Artifact {
-                    rel_path: "middleware.rs".into(),
-                    content: root,
+                    rel_path: format!("middleware/{m}.rs").into(),
+                    content: {
+                        let (imports, handle) = if framework == "actix" {
+                            (
+                                "use actix_web::body::BoxBody;\nuse actix_web::dev::{ServiceRequest, ServiceResponse};\nuse actix_web::middleware::Next;\nuse actix_web::Error;\n",
+                                "pub async fn handle(req: ServiceRequest, next: Next<BoxBody>) -> Result<ServiceResponse<BoxBody>, Error> {\n    // TODO: {{.name}} middleware logic\n    next.call(req).await\n}\n",
+                            )
+                        } else {
+                            (
+                                "use axum::body::Body;\nuse axum::http::Request;\nuse axum::middleware::Next;\nuse axum::response::Response;\n",
+                                "pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {\n    // TODO: {{.name}} middleware logic\n    next.run(req).await\n}\n",
+                            )
+                        };
+                        let ctx = base_ctx
+                            .clone()
+                            .set_str("name", m)
+                            .set_str("middlewareImports", imports)
+                            .set_str("middlewareHandle", handle);
+                        render::render(&middleware_tpl, &ctx)
+                            .context("render middleware.tpl")?
+                    },
                 });
-                files.push(Artifact {
-                    rel_path: "middleware/prelude.rs".into(),
-                    content: "// generated by rsctl\n".to_string(),
-                });
-                for m in &mws {
-                    files.push(Artifact {
-                        rel_path: format!("middleware/{m}.rs").into(),
-                        content: format!(
-                            r#"// Code scaffolded by rsctl. Safe to edit.
-// rsctl 0.01
-use axum::body::Body;
-use axum::http::Request;
-use axum::middleware::Next;
-use axum::response::Response;
-
-/// {m} middleware handler（占位实现）：后续把鉴权/日志等逻辑写在这里。
-pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
-    // TODO: {m} middleware logic
-    next.run(req).await
-}}
-"#,
-                            m = m
-                        ),
-                    });
-                }
             }
         }
 
@@ -1055,76 +951,16 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
             files.push(Artifact {
                 rel_path: format!("handler/{g}/handler.rs").into(),
                 content: {
-                    let mut s = String::new();
-                    s.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
-                    s.push_str("// rsctl 0.01\n\n");
-                    s.push_str("use std::sync::Arc;\n");
-                    // 选择 extractor：Json / Path / Form（按 request struct 字段 tag 决定）
-                    let mut need_json = false;
-                    let mut need_path = false;
-                    let mut need_form = false;
-                    let mut need_validate = false;
+                    let mut handlers_body = String::new();
 
                     let type_map: std::collections::BTreeMap<String, &spec::api::TypeDef> =
                         spec.types.iter().map(|t| (t.name.clone(), t)).collect();
 
-                    for service in &spec.services {
-                        let gg = effective_group(service);
-                        if snake(&gg) != *g {
-                            continue;
-                        }
-                        for r in &service.routes {
-                            let Some(req) = &r.request else { continue };
-                            if let Some(td) = type_map.get(req) {
-                                for f in &td.fields {
-                                    let Some(tag) = &f.tag else { continue };
-                                    let m = tag_kv_map(tag);
-                                    if m.contains_key("path") {
-                                        need_path = true;
-                                    }
-                                    if m.contains_key("form") {
-                                        need_form = true;
-                                    }
-                                    if m.contains_key("json") {
-                                        need_json = true;
-                                    }
-                                    if m.contains_key("validate") {
-                                        need_validate = true;
-                                    }
-                                }
-                            } else {
-                                // 未知 type：默认按 Json 处理
-                                need_json = true;
-                            }
-                        }
-                    }
-
-                    s.push_str("use axum::{\n");
-                    s.push_str("    extract::{\n");
-                    if need_json {
-                        s.push_str("        Json,\n");
-                    }
-                    if need_path {
-                        s.push_str("        Path,\n");
-                    }
-                    if need_form {
-                        s.push_str("        Form,\n");
-                    }
-                    s.push_str("    },\n");
-                    s.push_str("    http::StatusCode,\n");
-                    s.push_str("    response::IntoResponse,\n");
-                    s.push_str("    routing::{delete, get, patch, post, put, MethodRouter},\n");
-                    s.push_str("};\n");
-                    s.push_str("use crate::svc::ServiceContext;\n\n");
-                    if need_validate {
-                        s.push_str("use validator::Validate;\n\n");
-                    }
                     for h in hs {
                         // Find a representative route in this group with this handler.
                         // We only use it to populate request/response/doc metadata.
                         let mut req: Option<String> = None;
                         let mut resp: Option<String> = None;
-                        let mut http_method: Option<spec::api::HttpMethod> = None;
                         let mut doc: Option<String> = None;
                         'outer: for service in &spec.services {
                             let gg = effective_group(service);
@@ -1140,7 +976,6 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                                 }
                                 req = r.request.clone();
                                 resp = r.response.clone();
-                                http_method = Some(r.method.clone());
                                 // doc annotation
                                 if let Some(a) = r.annotations.iter().find(|a| a.name == "doc")
                                     && let spec::api::AnnotationArgs::Str(s) = &a.args
@@ -1167,126 +1002,125 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                             })
                             .unwrap_or_else(|| "anyhow::Result<()>".to_string());
 
-                        // extractor kind + 是否需要 validate
-                        let mut extractor = "Json".to_string();
                         let mut needs_validate = false;
                         if let Some(req_name) = req.as_deref()
                             && let Some(td) = type_map.get(req_name)
                         {
-                            let mut has_path = false;
-                            let mut has_form = false;
-                            let mut has_json = false;
                             for f in &td.fields {
                                 let Some(tag) = &f.tag else { continue };
                                 let m = tag_kv_map(tag);
-                                if m.contains_key("path") {
-                                    has_path = true;
-                                }
-                                if m.contains_key("form") {
-                                    has_form = true;
-                                }
-                                if m.contains_key("json") {
-                                    has_json = true;
-                                }
                                 if m.contains_key("validate") {
                                     needs_validate = true;
                                 }
                             }
-                            // 简化规则：path-only -> Path；form-only -> Form；否则 Json。
-                            if has_path && !has_form && !has_json {
-                                extractor = "Path".into();
-                            } else if has_form && !has_path && !has_json {
-                                extractor = "Form".into();
-                            } else {
-                                extractor = "Json".into();
-                            }
                         }
 
-                        // Rust handler（按代码层生成）：模板中的 Go `package/import` 段不做处理，也不参与生成。
+                        // Rust handler（rest::web 风格，框架无关）
                         let doc_str = doc
                             .as_ref()
                             .map(|d| format!("/// {}\n", d))
                             .unwrap_or_default();
-                        s.push_str(&doc_str);
-                        // builder fn name 与 @handler 一致（snake_case）
-                        let inner_fn = format!("handle_{h}");
-                        s.push_str(&format!(
-                            "pub fn {name}(svc_ctx: Arc<ServiceContext>) -> MethodRouter<Arc<ServiceContext>> {{\n",
-                            name = h
-                        ));
-                        s.push_str(&format!(
-                            "    {}({inner_fn}).with_state(svc_ctx)\n",
-                            match http_method.unwrap_or(spec::api::HttpMethod::Get) {
-                                spec::api::HttpMethod::Get => "get",
-                                spec::api::HttpMethod::Post => "post",
-                                spec::api::HttpMethod::Put => "put",
-                                spec::api::HttpMethod::Delete => "delete",
-                                spec::api::HttpMethod::Patch => "patch",
-                            }
-                        ));
-                        s.push_str("}\n\n");
+                        handlers_body.push_str(&doc_str);
 
-                        // inner handler fn
                         let has_req = req.is_some();
                         let has_resp = resp.is_some();
                         let req_ty = req_rust.as_str();
-                        let extractor = extractor.as_str();
 
-                        s.push_str(&format!("async fn {inner_fn}(\n"));
-                        s.push_str("    axum::extract::State(svc_ctx): axum::extract::State<Arc<ServiceContext>>,\n");
-                        if has_req {
-                            let pat = match extractor {
-                                "Path" => "axum::extract::Path(req): axum::extract::Path<",
-                                "Form" => "axum::extract::Form(req): axum::extract::Form<",
-                                _ => "axum::Json(req): axum::Json<",
-                            };
-                            s.push_str("    ");
-                            s.push_str(pat);
-                            s.push_str(req_ty);
-                            s.push_str(">,\n");
-                        }
-                        s.push_str(") -> impl IntoResponse {\n");
-                        if has_req && needs_validate {
-                            s.push_str("    if let Err(e) = req.validate() {\n");
-                            s.push_str("        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();\n");
-                            s.push_str("    }\n\n");
-                        }
-                        // call logic
-                        let logic_struct = format!("{}Logic", pascal(h));
-                        s.push_str(&format!(
-                            "    let l = crate::logic::{g}::logic::{logic_struct}::new(svc_ctx.clone());\n",
-                            g = g
-                        ));
-                        if has_req {
-                            if has_resp {
-                                s.push_str(&format!(
-                                    "    match l.{call}(req).await {{\n        Ok(resp) => axum::Json(resp).into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                        if framework == "actix" {
+                            // actix-web handler
+                            handlers_body.push_str(&format!(
+                                "pub async fn {name}(\n    svc_ctx: web::Data<Arc<ServiceContext>>,\n",
+                                name = h
+                            ));
+                            if has_req {
+                                handlers_body.push_str(&format!(
+                                    "    req: web::Json<{req_ty}>,\n",
+                                    req_ty = req_ty
+                                ));
+                            }
+                            handlers_body.push_str(") -> HttpResponse {\n");
+                            if has_req && needs_validate {
+                                handlers_body.push_str("    if let Err(e) = req.validate() {\n        return HttpResponse::BadRequest().body(e.to_string());\n    }\n\n");
+                            }
+                            let logic_struct = format!("{}Logic", pascal(h));
+                            handlers_body.push_str(&format!(
+                                "    let l = crate::logic::{g}::logic::{logic_struct}::new(svc_ctx.get_ref().clone());\n",
+                                g = g
+                            ));
+                            if has_req {
+                                if has_resp {
+                                    handlers_body.push_str(&format!(
+                                        "    match l.{call}(req.into_inner()).await {{\n        Ok(resp) => HttpResponse::Ok().json(resp),\n        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),\n    }}\n",
+                                        call = h
+                                    ));
+                                } else {
+                                    handlers_body.push_str(&format!(
+                                        "    match l.{call}(req.into_inner()).await {{\n        Ok(()) => HttpResponse::Ok().finish(),\n        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),\n    }}\n",
+                                        call = h
+                                    ));
+                                }
+                            } else if has_resp {
+                                handlers_body.push_str(&format!(
+                                    "    match l.{call}().await {{\n        Ok(resp) => HttpResponse::Ok().json(resp),\n        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),\n    }}\n",
                                     call = h
                                 ));
                             } else {
-                                s.push_str(&format!(
-                                    "    match l.{call}(req).await {{\n        Ok(()) => StatusCode::OK.into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                handlers_body.push_str(&format!(
+                                    "    match l.{call}().await {{\n        Ok(()) => HttpResponse::Ok().finish(),\n        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),\n    }}\n",
                                     call = h
                                 ));
                             }
-                        } else if has_resp {
-                            s.push_str(&format!(
-                                "    match l.{call}().await {{\n        Ok(resp) => axum::Json(resp).into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
-                                call = h
-                            ));
+                            handlers_body.push_str("}\n\n");
                         } else {
-                            s.push_str(&format!(
-                                "    match l.{call}().await {{\n        Ok(()) => StatusCode::OK.into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
-                                call = h
+                            // axum handler
+                            handlers_body.push_str(&format!(
+                                "pub async fn {name}(\n    Extension(svc_ctx): Extension<Arc<ServiceContext>>,\n",
+                                name = h
                             ));
+                            if has_req {
+                                handlers_body.push_str(&format!("    Json(req): Json<{req_ty}>,\n"));
+                            }
+                            handlers_body.push_str(") -> impl IntoResponse {\n");
+                            if has_req && needs_validate {
+                                handlers_body.push_str("    if let Err(e) = req.validate() {\n        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();\n    }\n\n");
+                            }
+                            let logic_struct = format!("{}Logic", pascal(h));
+                            handlers_body.push_str(&format!(
+                                "    let l = crate::logic::{g}::logic::{logic_struct}::new(svc_ctx.clone());\n",
+                                g = g
+                            ));
+                            if has_req {
+                                if has_resp {
+                                    handlers_body.push_str(&format!(
+                                        "    match l.{call}(req).await {{\n        Ok(resp) => Json(resp).into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                        call = h
+                                    ));
+                                } else {
+                                    handlers_body.push_str(&format!(
+                                        "    match l.{call}(req).await {{\n        Ok(()) => StatusCode::OK.into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                        call = h
+                                    ));
+                                }
+                            } else if has_resp {
+                                handlers_body.push_str(&format!(
+                                    "    match l.{call}().await {{\n        Ok(resp) => Json(resp).into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                    call = h
+                                ));
+                            } else {
+                                handlers_body.push_str(&format!(
+                                    "    match l.{call}().await {{\n        Ok(()) => StatusCode::OK.into_response(),\n        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),\n    }}\n",
+                                    call = h
+                                ));
+                            }
+                            handlers_body.push_str("}\n\n");
                         }
-                        s.push_str("}\n\n");
                     }
                     if !merge {
                         // Minimal behavior: if merge=false, still keep one file per group for now.
                         // (Future: split into per-handler module files.)
                     }
-                    s
+                    let ctx = base_ctx.clone().set_str("handlers", handlers_body);
+                    render::render(&handler_tpl, &ctx).context("render handler.tpl")?
                 },
             });
 
@@ -1299,12 +1133,7 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
             files.push(Artifact {
                 rel_path: format!("logic/{g}/logic.rs").into(),
                 content: {
-                    let mut s = String::new();
-                    s.push_str("// Code scaffolded by rsctl. Safe to edit.\n");
-                    s.push_str("// rsctl 0.01\n\n");
-                    s.push_str("use std::sync::Arc;\n");
-                    s.push_str("use tracing::instrument;\n");
-                    s.push_str("use crate::svc::ServiceContext;\n\n");
+                    let mut logics_body = String::new();
                     for h in hs {
                         // Find route meta again for request/response.
                         let mut req: Option<String> = None;
@@ -1355,15 +1184,15 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                             "Ok(())".to_string()
                         };
 
-                        s.push_str(&format!(
+                        logics_body.push_str(&format!(
                             "pub struct {logic_name} {{\n    svc_ctx: Arc<ServiceContext>,\n}}\n\n",
                         ));
-                        s.push_str(&format!(
+                        logics_body.push_str(&format!(
                             "impl {logic_name} {{\n    pub fn new(svc_ctx: Arc<ServiceContext>) -> Self {{\n        Self {{ svc_ctx }}\n    }}\n\n"
                         ));
-                        s.push_str("    #[instrument(skip_all)]\n");
+                        logics_body.push_str("    #[instrument(skip_all)]\n");
                         if has_req {
-                            s.push_str(&format!(
+                            logics_body.push_str(&format!(
                                 "    pub async fn {func}(&self, {req}) -> {resp} {{\n        let _ = &self.svc_ctx;\n        // todo: add your logic here and delete this line\n\n        {ret}\n    }}\n",
                                 func = h,
                                 req = req_param,
@@ -1371,19 +1200,20 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                                 ret = return_string
                             ));
                         } else {
-                            s.push_str(&format!(
+                            logics_body.push_str(&format!(
                                 "    pub async fn {func}(&self) -> {resp} {{\n        let _ = &self.svc_ctx;\n        // todo: add your logic here and delete this line\n\n        {ret}\n    }}\n",
                                 func = h,
                                 resp = response_type,
                                 ret = return_string
                             ));
                         }
-                        s.push_str("}\n\n");
+                        logics_body.push_str("}\n\n");
                     }
                     if !merge {
                         // Minimal behavior: keep group-level file even when merge=false.
                     }
-                    s
+                    let ctx = base_ctx.clone().set_str("logics", logics_body);
+                    render::render(&logic_tpl, &ctx).context("render logic.tpl")?
                 },
             });
 
@@ -1496,16 +1326,11 @@ pub async fn handle(req: Request<Body>, next: Next<Body>) -> Response {{
                         ));
                     }
                     }
-                    let mut out = String::new();
-                    out.push_str("// Code generated by rsctl. DO NOT EDIT.\n");
-                    out.push_str("// rsctl 0.01\n\n");
-                    out.push_str("use serde::{Deserialize, Serialize};\n");
-                    if need_validate {
-                        out.push_str("use validator::Validate;\n");
-                    }
-                    out.push('\n');
-                    out.push_str(&decls.join("\n"));
-                    out
+                    let types_ctx = base_ctx
+                        .clone()
+                        .set_str("types", decls.join("\n"))
+                        .set_bool("needValidate", need_validate);
+                    render::render(&types_tpl, &types_ctx).context("render types.tpl")?
                 },
             });
         }

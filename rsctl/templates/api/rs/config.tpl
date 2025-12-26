@@ -1,12 +1,23 @@
-// Code scaffolded by goctl. Safe to edit.
-// goctl {{.version}}
+// Code scaffolded by rsctl. Safe to edit.
+// rsctl {{.version}}
 
-package config
+use rust_zero::rest::RestConf;
+use serde::Deserialize;
 
-import {{.authImport}}
+{{.jwtConf}}
 
-type Config struct {
-	rest.RestConf
-	{{.auth}}
-	{{.jwtTrans}}
+#[derive(Debug, Clone, Deserialize)]
+pub struct Config {
+    #[serde(flatten)]
+    pub rest: RestConf,
+    {{.jwtField}}
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            rest: RestConf::default(),
+            {{.jwtDefault}}
+        }
+    }
 }

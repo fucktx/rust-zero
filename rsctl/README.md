@@ -1,4 +1,4 @@
-# rsctl
+# rsctl(这里不完全支持go-zero中的模版，借鉴了go-zero的模版风格)
 
 ## 快速开始
 
@@ -65,7 +65,7 @@ cd rsctl/tests/out
 cargo run
 ```
 
-如果端口被占用，会看到类似 `failed to bind ... Address already in use` 的提示；修改 `rsctl/tests/out/etc/config.yaml` 的 `Port` 即可。
+如果端口被占用，会看到类似 `failed to bind ... Address already in use` 的提示；修改 `rsctl/tests/out/etc/<service>.yaml` 的 `Port` 即可（默认是 `etc/<service>.yaml`，也可用 `-f` 指定）。
 
 #### 4) 生成结果如何接入本仓库的 `rest`（零运行时抽象）
 

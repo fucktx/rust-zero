@@ -1,22 +1,7 @@
 // Code scaffolded by rsctl. Safe to edit.
 // rsctl {{.version}}
 
-package middleware
+/// {{.name}} middleware（占位实现）：后续把鉴权/日志等逻辑写在这里。
+{{.middlewareImports}}
 
-import "net/http"
-
-type {{.name}} struct {
-}
-
-func New{{.name}}() *{{.name}} {
-	return &{{.name}}{}
-}
-
-func (m *{{.name}})Handle(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO generate middleware implement function, delete after code implementation
-
-		// Passthrough to next handler if need
-		next(w, r)
-	}
-}
+{{.middlewareHandle}}
