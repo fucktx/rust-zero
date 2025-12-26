@@ -10,3 +10,4 @@ rsctl/dist
 rsctl/target
 rsctl/tests/out
 rsctl/utils/tests
+rsctl/tests/out_actix
