@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/rust-zero",
+  "crates/rz-core",
+  "crates/rz-rest",
+  "rsctl/cli",
+  "rsctl/core",
+  "rsctl/utils",
+  "rsctl/spec",
+  "rsctl/parse",
+  "rsctl/semantic",
+  "rsctl/gen",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "Apache-2.0"
+repository = "https://github.com/fucktx/rust-zero"
+readme = "README.md"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+pest = "2.8"
+pest_derive = "2.8"
+
+
