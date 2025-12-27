@@ -1,0 +1,38 @@
+[package]
+name = "rest"
+version = "0.1.0"
+edition = "2024"
+description = "rust-zero rest（Web 适配层/中间件/路由 DSL）"
+license = "Apache-2.0"
+repository = "https://github.com/fucktx/rust-zero"
+readme = "../README.md"
+
+[features]
+default = []
+axum = ["dep:axum", "dep:tokio", "dep:hyper"]
+actix = ["dep:actix-web", "dep:actix-service", "dep:actix-http"]
+jwt = ["dep:jsonwebtoken"]
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+futures = "0.3"
+http = "0.2"
+matchit = "0.7"
+serde = { version = "1", features = ["derive"] }
+tower-http = { version = "0.4", features = ["cors"] }
+tower-layer = "0.3"
+tower-service = "0.3"
+
+core = { path = "../core" }
+
+jsonwebtoken = { version = "9", optional = true }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+axum = { version = "0.6", optional = true }
+hyper = { version = "0.14", optional = true }
+actix-web = { version = "4", optional = true }
+actix-service = { version = "2", optional = true }
+actix-http = { version = "3", optional = true }
+
+

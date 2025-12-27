@@ -2,12 +2,22 @@
 **/.idea
 **/.vscode
 **/.DS_Store
-*/target
 .cursor
-rsctl/.cargo
-rsctl/.tmp
-rsctl/dist
-rsctl/target
-rsctl/tests/out
-rsctl/utils/tests
-rsctl/tests/out_actix
+
+# Rust build artifacts (all crates)
+target/
+**/target/
+
+# Local binaries / packaging output
+**/dist/
+
+# rsctl local temp dirs / generated outputs
+rsctl/.cargo/
+rsctl/.tmp/
+rsctl/test/out/
+rsctl/test/out_actix/
+rsctl/utils/tests/
+
+# rsctl test dir: keep only the example api file in repo
+rsctl/test/*
+!rsctl/test/api.api

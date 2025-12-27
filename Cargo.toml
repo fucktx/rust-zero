@@ -1,16 +1,28 @@
+[package]
+name = "zero"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "zero 门面 crate：对外统一入口（zero::core / zero::rest）"
+
+[features]
+default = []
+axum = ["rest/axum"]
+actix = ["rest/actix"]
+jwt = ["rest/jwt"]
+
+[dependencies]
+core = { path = "core" }
+rest = { path = "rest", default-features = false }
+
 [workspace]
 resolver = "2"
 members = [
-  "crates/rust-zero",
-  "crates/rz-core",
-  "crates/rz-rest",
-  "rsctl/cli",
-  "rsctl/core",
-  "rsctl/utils",
-  "rsctl/spec",
-  "rsctl/parse",
-  "rsctl/semantic",
-  "rsctl/gen",
+  "core",
+  "rest",
+  "rsctl",
 ]
 
 [workspace.package]
